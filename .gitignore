@@ -1,0 +1,50 @@
+# -----------------
+# Python
+# -----------------
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pkl
+*.db
+*.sqlite
+*.sqlite3
+.env
+venv/
+env/
+.venv/
+ENV/
+build/
+dist/
+
+# -----------------
+# Node / JavaScript
+# -----------------
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+.pnpm-debug.log*
+dist/
+build/
+.cache/
+.DS_Store
+
+# -----------------
+# OS / Editor
+# -----------------
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+*.tmp
+*.log
+
+# -----------------
+# Electron
+# -----------------
+out/
+release/
