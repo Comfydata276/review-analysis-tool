@@ -7,6 +7,9 @@ Base URL (development): `http://127.0.0.1:8000`
 ## Games
 
 - GET /games/search?query=... — Search Steam in real-time. Use text or an AppID.
+ - GET /games/search?query=... — Search Steam in real-time. Use text or an AppID.
+ - GET /games/search_local?query=... — Search the local applist (SQLite FTS5). Returns a paginated `GameSearchResponse` with `games`, `total`, `start`, `count`.
+ - GET /games/applist — Fetch the full Steam applist from the Steam Web API (useful for backfill/import). Returns simple `GameCreate` objects (app_id, name).
 
 - GET /games/active — List active (tracked) games stored in the DB. Returns `GameRead` objects.
 
@@ -48,6 +51,8 @@ Base URL (development): `http://127.0.0.1:8000`
   - Response: `ReviewPage` (reviews, total, limit, offset)
 
 - DELETE /reviews/by_game/{app_id}?dry_run=true|false — Delete reviews for `app_id`. If `dry_run` the endpoint returns count without deleting.
+
+- GET /reviews/export/{app_id}?format=csv|xlsx — Export all reviews for `app_id` as a downloadable file. `format` defaults to `csv`. Returns a file attachment.
 
 ## Cursors
 

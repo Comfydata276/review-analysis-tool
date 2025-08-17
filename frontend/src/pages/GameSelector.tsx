@@ -5,6 +5,7 @@ import { ActiveList } from "../components/ActiveList";
 import { Game, GameSearchResponse } from "../types";
 import { addActiveGame, getActiveGames, removeActiveGame, searchGames } from "../api/games";
 import { Card } from "../components/ui/Card";
+import { RadialProgress } from "../components/ui/RadialProgress";
 import toast from "react-hot-toast";
 import { ArrowPathIcon } from "@heroicons/react/24/outline";
 import { Button } from "../components/ui/Button";
@@ -17,6 +18,10 @@ export const GameSelector: React.FC = () => {
   const [loadingActive, setLoadingActive] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastRefreshed, setLastRefreshed] = useState<number | null>(null);
+  const [backfillState, setBackfillState] = useState<string | null>(null);
+  const [backfillTotal, setBackfillTotal] = useState<number | null>(null);
+  const [backfillProcessed, setBackfillProcessed] = useState<number | null>(null);
+  const [backfillError, setBackfillError] = useState<string | null>(null);
 
   // pagination
   const PAGE_SIZE = 200; // server allows larger windows; backend now supports up to 1000
@@ -42,6 +47,35 @@ export const GameSelector: React.FC = () => {
   useEffect(() => {
     loadActive();
   }, [loadActive]);
+
+  // Poll backfill status on mount so the UI can show progress for first-run
+  useEffect(() => {
+    let mounted = true;
+    let timer: any;
+    async function poll() {
+      let resp: any = null;
+      try {
+        resp = await getBackfillStatus();
+        if (!mounted) return;
+        setBackfillState(resp.state || null);
+        setBackfillTotal(typeof resp.total === "number" ? resp.total : null);
+        setBackfillProcessed(typeof resp.processed === "number" ? resp.processed : null);
+        setBackfillError(resp.error || null);
+      } catch (e) {
+        // ignore; keep polling in case of transient errors
+      } finally {
+        // Continue polling only while backfill is actively running or if we couldn't fetch status
+        if (!resp || resp.state === "running") {
+          timer = setTimeout(poll, 5000);
+        }
+      }
+    }
+    poll();
+    return () => {
+      mounted = false;
+      if (timer) clearTimeout(timer);
+    };
+  }, []);
 
   const doSearch = useCallback(async (q: string, s = 0) => {
     try {
@@ -127,6 +161,22 @@ export const GameSelector: React.FC = () => {
         <div className="rounded-md border border-destructive bg-destructive/10 p-2 text-sm text-destructive-foreground" data-testid="error-banner">
           {error}
         </div>
+      )}
+
+      {/* Backfill status */}
+      {backfillState && backfillState !== "done" && (
+        <Card title="Indexing Steam apps" subtitle={backfillState === "running" ? `Populating ${backfillProcessed ?? "?"}/${backfillTotal ?? "?"}` : `Status: ${backfillState}`}>
+          <div className="flex items-center gap-4">
+            <RadialProgress value={backfillTotal ? Math.floor(((backfillProcessed || 0) / backfillTotal) * 100) : 0} size={64} stroke={8} />
+            <div className="text-sm">
+              {backfillState === "running" ? (
+                <div>Populating local Steam app list ({backfillProcessed ?? "?"}/{backfillTotal ?? "?"})</div>
+              ) : (
+                <div>Backfill status: {backfillState}. {backfillError && <span className="text-destructive">{backfillError}</span>}</div>
+              )}
+            </div>
+          </div>
+        </Card>
       )}
 
       {/* Quick stats */}

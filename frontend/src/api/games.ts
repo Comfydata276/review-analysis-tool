@@ -10,10 +10,30 @@ async function handleResponse<T>(resp: Response): Promise<T> {
 	return (await resp.json()) as T;
 }
 
-export async function searchGames(query: string, start = 0, count = 200): Promise<GameSearchResponse> {
+// Realtime Steam search (fallback)
+export async function searchGamesRealtime(query: string, start = 0, count = 200): Promise<GameSearchResponse> {
 	const url = `${BASE_URL}/games/search?query=${encodeURIComponent(query)}&start=${start}&count=${count}`;
 	const resp = await fetch(url);
 	return handleResponse<GameSearchResponse>(resp);
+}
+
+// Local SQLite-backed search (preferred for desktop usage)
+export async function searchGames(query: string, start = 0, count = 200): Promise<GameSearchResponse> {
+	const url = `${BASE_URL}/games/search_local?query=${encodeURIComponent(query)}&start=${start}&count=${count}`;
+	const resp = await fetch(url);
+	return handleResponse<GameSearchResponse>(resp);
+}
+
+// Meilisearch removed; use `searchGames` which queries local SQLite search.
+
+export async function getAppList(): Promise<Game[]> {
+	const resp = await fetch(`${BASE_URL}/games/applist`);
+	return handleResponse<Game[]>(resp);
+}
+
+export async function getBackfillStatus(): Promise<{state: string; total: number; processed: number; started_at?: string | null; finished_at?: string | null; error?: string | null}> {
+	const resp = await fetch(`${BASE_URL}/games/backfill/status`);
+	return handleResponse<any>(resp);
 }
 
 export async function getActiveGames(): Promise<Game[]> {
@@ -40,5 +60,6 @@ export async function removeActiveGame(appId: number): Promise<void> {
 		throw new Error(text || `HTTP ${resp.status}`);
 	}
 }
+
 
 

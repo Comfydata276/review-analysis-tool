@@ -62,3 +62,23 @@ async def search_games_realtime(query: str, start: int = 0, count: int = 50) -> 
 			return results[:count]
 
 
+async def get_app_list() -> List[Dict]:
+	"""Fetch the full Steam app list (appid + name) from the Steam Web API.
+
+	Returns a list of {app_id, name} dicts.
+	"""
+	url = f"{settings.STEAM_API_BASE_URL}/ISteamApps/GetAppList/v2/"
+	async with httpx.AsyncClient(timeout=settings.REQUEST_TIMEOUT_SECONDS) as client:
+		resp = await client.get(url)
+		resp.raise_for_status()
+		data = resp.json() or {}
+		apps = data.get("applist", {}).get("apps", []) or []
+		results: List[Dict] = []
+		for entry in apps:
+			appid = entry.get("appid") or entry.get("appID") or entry.get("app_id")
+			name = (entry.get("name") or "").strip()
+			if appid is not None and name:
+				results.append({"app_id": int(appid), "name": name})
+		return results
+
+

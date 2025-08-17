@@ -272,8 +272,18 @@ class ScraperService:
 				reviews = payload.get("reviews", []) or []
 				qsum = payload.get("query_summary", {}) or {}
 				if self.progress.current_game_total == 0:
-					self.progress.current_game_total = int(qsum.get("total_reviews") or qsum.get("num_reviews") or 0)
-					# Adjust global total by replacing per-game rough estimate with real estimate
+					# Steam provides a rough total of available reviews (qsum). For UI progress
+					# and ETA we prefer to use the user-requested target (`max_reviews`) so the
+					# progress bar and ETA reflect the configured goal rather than the full
+					# number of reviews available on the store. If the store reports fewer
+					# reviews than requested, use the store count.
+					q_total = int(qsum.get("total_reviews") or qsum.get("num_reviews") or 0)
+					if q_total > 0:
+						self.progress.current_game_total = min(q_total, settings_for_game.max_reviews)
+					else:
+						# Fallback to requested max if store doesn't provide an estimate
+						self.progress.current_game_total = settings_for_game.max_reviews
+					# Adjust global total by replacing per-game rough estimate with the chosen estimate
 					self.progress.global_total -= settings_for_game.max_reviews
 					self.progress.global_total += self.progress.current_game_total
 
