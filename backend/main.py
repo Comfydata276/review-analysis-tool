@@ -22,15 +22,36 @@ def create_app() -> FastAPI:
 	from .database import Base, engine
 	Base.metadata.create_all(bind=engine)
 
-	# First-run: if using SQLite and DB file missing or empty, run initial backfill to populate applist
+	# First-run: if using SQLite and the `steam_apps` table is missing (or DB missing/empty),
+	# start the background backfill to populate the local applist.
 	from pathlib import Path
 	from .config import settings
 	if settings.DATABASE_URL.startswith("sqlite"):
 		# path like sqlite:///./app.db or sqlite:///C:/path/app.db
 		db_path = settings.DATABASE_URL.replace("sqlite:///", "")
 		p = Path(db_path)
-		# If DB missing/empty, start background backfill and continue serving
-		if not p.exists() or p.stat().st_size == 0:
+		need_backfill = False
+		try:
+			# If DB missing or empty, we definitely need to backfill
+			if not p.exists() or p.stat().st_size == 0:
+				need_backfill = True
+			else:
+				# If the DB exists, check whether the steam_apps table is present; if not, backfill
+				import sqlite3
+				conn = sqlite3.connect(str(db_path))
+				try:
+					cur = conn.cursor()
+					cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='steam_apps';")
+					if cur.fetchone() is None:
+						need_backfill = True
+				finally:
+					conn.close()
+		except Exception as e:
+			# If any check fails, err on the side of starting backfill
+			print(f"Failed to check DB for backfill requirement: {e}")
+			need_backfill = True
+
+		if need_backfill:
 			try:
 				from .backfill_service import get_default_service
 				service = get_default_service()

@@ -19,7 +19,12 @@ import { RadialProgress } from "../components/ui/RadialProgress";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
 import { Select } from "../components/ui/Select";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "../components/ui/Tabs";
+import { FormField, FormSection, FormGrid } from "../components/ui/FormField";
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "../components/ui/Collapsible";
+import { cn } from "../lib/utils";
 import toast from "react-hot-toast";
+import { desktopUtils } from "../utils/notifications";
 import { PlayIcon, StopIcon } from "@heroicons/react/24/outline";
 import {
 	Area,
@@ -50,6 +55,10 @@ export const Scraper: React.FC = () => {
 	const [error, setError] = useState<string | null>(null);
 	const [running, setRunning] = useState(false);
 	const [history, setHistory] = useState<Point[]>([]);
+	const [settingsTab, setSettingsTab] = useState("global");
+	const [configurationOpen, setConfigurationOpen] = useState(true);
+	const [exportOpen, setExportOpen] = useState(false);
+	const [selectedExportGame, setSelectedExportGame] = useState<number | null>(null);
 
 	const [globalSettings, setGlobalSettings] =
 		useState<ScraperSettings["global_settings"]>({
@@ -69,13 +78,19 @@ export const Scraper: React.FC = () => {
 	// Load active games on mount
 	useEffect(() => {
 		getActiveGames()
-			.then(setActiveGames)
+			.then((games) => {
+				setActiveGames(games);
+				// Auto-select first game for export if none selected
+				if (games.length > 0 && !selectedExportGame) {
+					setSelectedExportGame(games[0].app_id);
+				}
+			})
 			.catch((e) => {
 				const msg = e.message || "Failed to load active games";
 				setError(msg);
 				toast.error(msg);
 			});
-	}, []);
+	}, [selectedExportGame]);
 
 	// Poll status
 	useEffect(() => {
@@ -120,9 +135,10 @@ export const Scraper: React.FC = () => {
 	}, [running]);
 
 	const logsEndRef = useRef<HTMLDivElement | null>(null);
-	useEffect(() => {
-		logsEndRef.current?.scrollIntoView({ behavior: "smooth" });
-	}, [status?.logs?.length]);
+	// Removed auto-scroll to logs - user doesn't want this behavior
+	// useEffect(() => {
+	// 	logsEndRef.current?.scrollIntoView({ behavior: "smooth" });
+	// }, [status?.logs?.length]);
 
 	const handleStart = useCallback(async () => {
 		try {
@@ -172,25 +188,116 @@ export const Scraper: React.FC = () => {
 	const totalScraped = status?.global_progress?.scraped || 0;
 	const rateLimit = globalSettings.rate_limit_rpm;
 
+	const handleExport = useCallback(async (format: "csv" | "xlsx") => {
+		if (!selectedExportGame) {
+			toast.error("Please select a game to export reviews for.");
+			return;
+		}
+
+		try {
+			const selectedGame = activeGames.find(g => g.app_id === selectedExportGame);
+			const gameName = selectedGame?.name || `Game_${selectedExportGame}`;
+			
+			// Use the correct backend URL like in GameList component
+			const BACKEND_URL = (import.meta as any).env.VITE_BACKEND_URL || "http://127.0.0.1:8000";
+			const url = `${BACKEND_URL}/reviews/export/${selectedExportGame}?format=${format}`;
+			const response = await fetch(url);
+			
+			if (!response.ok) {
+				const text = await response.text();
+				if (response.status === 404) {
+					toast.error("No reviews found for the selected game.");
+					return;
+				}
+				throw new Error(text || `HTTP ${response.status}`);
+			}
+
+			// Get the filename from the response headers or create one
+			const disposition = response.headers.get("Content-Disposition") || "";
+			let filename = `reviews_${selectedExportGame}.${format}`;
+			const m = /filename="?([^";]+)"?/.exec(disposition);
+			if (m && m[1]) filename = m[1];
+
+			const blob = await response.blob();
+			const blobUrl = URL.createObjectURL(blob);
+			const a = document.createElement("a");
+			a.href = blobUrl;
+			a.download = filename;
+			document.body.appendChild(a);
+			a.click();
+			a.remove();
+			URL.revokeObjectURL(blobUrl);
+			
+			toast.success(`Download started for ${gameName}`);
+		} catch (error: any) {
+			console.error("Export failed:", error);
+			toast.error(error.message || "Download failed");
+		}
+	}, [selectedExportGame, activeGames]);
+
 	return (
 		<div className="space-y-6 p-0" data-testid="scraper-page">
 
-			<div className="flex items-center justify-between px-1">
+			<div className="flex items-center justify-between">
 				<div>
 					<h1 className="text-3xl font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-sky-600 to-indigo-600">Steam Review Scraper</h1>
-					<p className="text-sm text-muted">Monitor progress, tweak settings, and view logs.</p>
+					<p className="text-sm text-muted-foreground">Monitor progress, configure settings, and view real-time logs.</p>
 				</div>
+				<div className="flex items-center gap-3">
+					{/* Status Indicator */}
 				<div className="flex items-center gap-2">
-					<Button onClick={handleStart} disabled={running} variant="gradient" className="inline-flex items-center gap-2" data-testid="start-scraper">
+						<div className={cn(
+							"h-2 w-2 rounded-full",
+							running ? "bg-green-500 animate-pulse" : "bg-gray-400"
+						)} />
+						<span className="text-sm text-muted-foreground">
+							{running ? "Running" : "Idle"}
+						</span>
+					</div>
+					
+					{/* Control Buttons */}
+					<Button 
+						onClick={handleStart} 
+						disabled={running || activeGames.length === 0} 
+						variant="gradient" 
+						className="inline-flex items-center gap-2" 
+						data-testid="start-scraper"
+					>
 						<PlayIcon className="h-4 w-4" />
-						Start
+						Start Scraping
 					</Button>
-					<Button onClick={handleStop} disabled={!running} variant="destructive" className="inline-flex items-center gap-2" data-testid="stop-scraper">
+					<Button 
+						onClick={handleStop} 
+						disabled={!running} 
+						variant="destructive" 
+						className="inline-flex items-center gap-2" 
+						data-testid="stop-scraper"
+					>
 						<StopIcon className="h-4 w-4" />
 						Stop
 					</Button>
 				</div>
 			</div>
+			
+			{/* Quick Action Bar */}
+			{!running && activeGames.length === 0 && (
+				<div className="bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+					<div className="flex items-center gap-3">
+						<div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-100 dark:bg-blue-900">
+							<svg className="h-5 w-5 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+							</svg>
+						</div>
+						<div className="flex-1">
+							<h3 className="font-medium text-blue-900 dark:text-blue-100">Ready to Start</h3>
+							<p className="text-sm text-blue-700 dark:text-blue-300">Add games from the Game Selector tab to begin scraping reviews.</p>
+						</div>
+						<Button variant="outline" size="sm" onClick={() => window.location.href = '/selector'}>
+							Go to Game Selector
+						</Button>
+					</div>
+				</div>
+			)}
 
 			{/* Stats */}
 			<div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
@@ -258,13 +365,39 @@ export const Scraper: React.FC = () => {
 			</Card>
 
 			{/* Settings */}
-			<Card title="Global Settings" subtitle="Adjust defaults and overrides">
-				<div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-					<label className="text-sm">
-						Max reviews per game
+			<Collapsible open={configurationOpen} onOpenChange={setConfigurationOpen}>
+				<Card>
+					<CollapsibleTrigger asChild>
+						<div className="flex items-center justify-between border-b border-border p-4 cursor-pointer hover:bg-muted/50 transition-colors">
+							<div>
+								<h3 className="text-lg font-semibold">Configuration</h3>
+								<p className="text-sm text-muted-foreground">Configure scraper settings and per-game overrides</p>
+							</div>
+						</div>
+					</CollapsibleTrigger>
+					<CollapsibleContent>
+						<div className="p-4">
+							<Tabs value={settingsTab} onValueChange={setSettingsTab}>
+					<TabsList className="grid w-full grid-cols-2">
+						<TabsTrigger value="global">Global Settings</TabsTrigger>
+						<TabsTrigger value="overrides">Game Overrides</TabsTrigger>
+					</TabsList>
+
+					<TabsContent value="global" className="space-y-6">
+						<FormSection 
+							title="Basic Settings" 
+							description="Configure the main scraping parameters"
+						>
+							<FormGrid cols={2}>
+								<FormField 
+									label="Max Reviews per Game" 
+									description="Maximum number of reviews to scrape per game"
+									required
+								>
 						<Input
 							type="number"
-							className="mt-1"
+										min="1"
+										max="10000"
 							value={globalSettings.max_reviews}
 							onChange={(e) =>
 								setGlobalSettings((s) => ({
@@ -275,12 +408,17 @@ export const Scraper: React.FC = () => {
 							disabled={running}
 							data-testid="max-reviews"
 						/>
-					</label>
-					<label className="text-sm">
-						Rate limit (RPM)
+								</FormField>
+
+								<FormField 
+									label="Rate Limit (RPM)" 
+									description="Requests per minute to avoid rate limiting"
+									required
+								>
 						<Input
 							type="number"
-							className="mt-1"
+										min="1"
+										max="300"
 							value={globalSettings.rate_limit_rpm}
 							onChange={(e) =>
 								setGlobalSettings((s) => ({
@@ -291,116 +429,369 @@ export const Scraper: React.FC = () => {
 							disabled={running}
 							data-testid="rate-limit"
 						/>
-					</label>
-					<label className="text-sm">
-						Language
+								</FormField>
+							</FormGrid>
+						</FormSection>
+
+						<FormSection 
+							title="Language & Filtering" 
+							description="Configure language and content filters"
+						>
+							<FormGrid cols={3}>
+								<FormField label="Language" description="Review language preference">
 						<Select
-							options={[{ label: "english", value: "english" }, { label: "spanish", value: "spanish" }, { label: "german", value: "german" }]}
-							className="mt-1"
+										options={[
+											{ label: "English", value: "english" }, 
+											{ label: "Spanish", value: "spanish" }, 
+											{ label: "German", value: "german" },
+											{ label: "French", value: "french" },
+											{ label: "Italian", value: "italian" },
+											{ label: "Japanese", value: "japanese" }
+										]}
 							value={globalSettings.language}
 							onChange={(e) => setGlobalSettings((s) => ({ ...s, language: e.target.value }))}
 							disabled={running}
 							data-testid="language"
 						/>
-					</label>
-					<label className="text-sm">
-						Start date
+								</FormField>
+
+								<FormField label="Early Access" description="Include early access games">
+									<Select
+										options={[
+											{ label: "Include", value: "include" }, 
+											{ label: "Exclude", value: "exclude" }, 
+											{ label: "Only", value: "only" }
+										]}
+										value={globalSettings.early_access}
+										onChange={(e) => setGlobalSettings((s) => ({ ...s, early_access: e.target.value as any }))}
+										disabled={running}
+										data-testid="early-access"
+									/>
+								</FormField>
+
+								<FormField label="Free Games" description="Include games received for free">
+									<Select
+										options={[
+											{ label: "Include", value: "include" }, 
+											{ label: "Exclude", value: "exclude" }, 
+											{ label: "Only", value: "only" }
+										]}
+										value={globalSettings.received_for_free}
+										onChange={(e) => setGlobalSettings((s) => ({ ...s, received_for_free: e.target.value as any }))}
+										disabled={running}
+										data-testid="received-for-free"
+									/>
+								</FormField>
+							</FormGrid>
+						</FormSection>
+
+						<FormSection 
+							title="Date Range" 
+							description="Limit reviews to a specific time period (optional)"
+						>
+							<FormGrid cols={2}>
+								<FormField 
+									label="Start Date" 
+									description="Only include reviews after this date"
+								>
 						<Input
 							type="date"
-							className="mt-1"
 							value={globalSettings.start_date || ""}
 							onChange={(e) => setGlobalSettings((s) => ({ ...s, start_date: e.target.value || undefined }))}
 							disabled={running}
 							data-testid="start-date"
 						/>
-					</label>
-					<label className="text-sm">
-						End date
+								</FormField>
+
+								<FormField 
+									label="End Date" 
+									description="Only include reviews before this date"
+								>
 						<Input
 							type="date"
-							className="mt-1"
 							value={globalSettings.end_date || ""}
 							onChange={(e) => setGlobalSettings((s) => ({ ...s, end_date: e.target.value || undefined }))}
 							disabled={running}
 							data-testid="end-date"
 						/>
-					</label>
-					<label className="text-sm">
-						Early access
-						<Select
-							options={[{ label: "include", value: "include" }, { label: "exclude", value: "exclude" }, { label: "only", value: "only" }]}
-							className="mt-1"
-							value={globalSettings.early_access}
-							onChange={(e) => setGlobalSettings((s) => ({ ...s, early_access: e.target.value as any }))}
+								</FormField>
+							</FormGrid>
+						</FormSection>
+					</TabsContent>
+
+					<TabsContent value="overrides" className="space-y-4">
+						<div className="text-sm text-muted-foreground">
+							Override global settings for specific games. Useful for games that need different parameters.
+						</div>
+						
+						{activeGames.length === 0 ? (
+							<div className="text-center py-8 text-muted-foreground">
+								<div className="mb-2">No active games selected</div>
+								<div className="text-sm">Add games from the Game Selector to configure overrides</div>
+							</div>
+						) : (
+							<div className="space-y-3">
+								{activeGames.map((game) => {
+									const override = perGameOverrides[game.app_id] || {};
+									const enabled = !!override.enabled;
+									
+									return (
+										<Card key={game.app_id} className="transition-all duration-200">
+											<div className="flex items-center justify-between p-4 border-b border-border">
+												<div className="flex items-center gap-3">
+													<div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-to-br from-blue-500 to-purple-600 text-white text-sm font-bold">
+														{game.name.charAt(0).toUpperCase()}
+													</div>
+													<div>
+														<h4 className="font-medium">{game.name}</h4>
+														<p className="text-sm text-muted-foreground">App ID: {game.app_id}</p>
+													</div>
+												</div>
+												<label className="inline-flex items-center gap-2 cursor-pointer">
+													<input 
+														type="checkbox" 
+														checked={enabled} 
+														onChange={(e) => setPerGameOverrides((s) => ({ 
+															...s, 
+															[game.app_id]: { ...override, enabled: e.target.checked } 
+														}))} 
 							disabled={running}
-							data-testid="early-access"
-						/>
-					</label>
-					<label className="text-sm">
-						Received for free
-						<Select
-							options={[{ label: "include", value: "include" }, { label: "exclude", value: "exclude" }, { label: "only", value: "only" }]}
-							className="mt-1"
-							value={globalSettings.received_for_free}
-							onChange={(e) => setGlobalSettings((s) => ({ ...s, received_for_free: e.target.value as any }))}
-							disabled={running}
-							data-testid="received-for-free"
-						/>
+														className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+													/>
+													<span className="text-sm font-medium">Enable Overrides</span>
 					</label>
 				</div>
 
-				{/* Per-game overrides */}
-				<div className="mt-4 space-y-2">
-					<h3 className="font-medium">Per-game overrides</h3>
-					{activeGames.map((g) => {
-						const override = perGameOverrides[g.app_id] || {};
-						const enabled = !!override.enabled;
-						return (
-							<div key={g.app_id} className="rounded border border-border bg-card">
-								<div className="flex items-center justify-between px-3 py-2">
-									<div className="text-sm font-medium">{g.name} ({g.app_id})</div>
-									<label className="inline-flex items-center gap-2 text-sm">
-										<input type="checkbox" checked={enabled} onChange={(e) => setPerGameOverrides((s) => ({ ...s, [g.app_id]: { ...override, enabled: e.target.checked } }))} disabled={running} />
-										<span>Enable override</span>
-									</label>
-								</div>
 								{enabled && (
-									<div className="grid grid-cols-1 gap-3 px-3 pb-3 sm:grid-cols-2">
-										<label className="text-sm">
-											Max reviews
-											<Input type="number" className="mt-1" value={override.max_reviews ?? globalSettings.max_reviews} onChange={(e) => setPerGameOverrides((s) => ({ ...s, [g.app_id]: { ...override, max_reviews: Number(e.target.value), enabled } }))} disabled={running} />
-										</label>
-										<label className="text-sm">
-											Rate limit (RPM)
-											<Input type="number" className="mt-1" value={override.rate_limit_rpm ?? globalSettings.rate_limit_rpm} onChange={(e) => setPerGameOverrides((s) => ({ ...s, [g.app_id]: { ...override, rate_limit_rpm: Number(e.target.value), enabled } }))} disabled={running} />
-										</label>
-										<label className="text-sm">
-											Language
-											<Select options={[{ label: "english", value: "english" }, { label: "spanish", value: "spanish" }, { label: "german", value: "german" }]} className="mt-1" value={override.language ?? globalSettings.language} onChange={(e) => setPerGameOverrides((s) => ({ ...s, [g.app_id]: { ...override, language: e.target.value, enabled } }))} disabled={running} />
-										</label>
-										<label className="text-sm">
-											Start date
-											<Input type="date" className="mt-1" value={override.start_date ?? ""} onChange={(e) => setPerGameOverrides((s) => ({ ...s, [g.app_id]: { ...override, start_date: e.target.value || undefined, enabled } }))} disabled={running} />
-										</label>
-										<label className="text-sm">
-											End date
-											<Input type="date" className="mt-1" value={override.end_date ?? ""} onChange={(e) => setPerGameOverrides((s) => ({ ...s, [g.app_id]: { ...override, end_date: e.target.value || undefined, enabled } }))} disabled={running} />
-										</label>
-										<label className="text-sm">
-											Early access
-											<Select options={[{ label: "include", value: "include" }, { label: "exclude", value: "exclude" }, { label: "only", value: "only" }]} className="mt-1" value={override.early_access ?? globalSettings.early_access} onChange={(e) => setPerGameOverrides((s) => ({ ...s, [g.app_id]: { ...override, early_access: e.target.value as any, enabled } }))} disabled={running} />
-										</label>
-										<label className="text-sm">
-											Received for free
-											<Select options={[{ label: "include", value: "include" }, { label: "exclude", value: "exclude" }, { label: "only", value: "only" }]} className="mt-1" value={override.received_for_free ?? globalSettings.received_for_free} onChange={(e) => setPerGameOverrides((s) => ({ ...s, [g.app_id]: { ...override, received_for_free: e.target.value as any, enabled } }))} disabled={running} />
-										</label>
+												<div className="p-4 space-y-4 bg-muted/50">
+													<FormGrid cols={2}>
+														<FormField label="Max Reviews">
+															<Input 
+																type="number" 
+																min="1"
+																max="10000"
+																value={override.max_reviews ?? globalSettings.max_reviews} 
+																onChange={(e) => setPerGameOverrides((s) => ({ 
+																	...s, 
+																	[game.app_id]: { ...override, max_reviews: Number(e.target.value), enabled } 
+																}))} 
+																disabled={running} 
+															/>
+														</FormField>
+														
+														<FormField label="Rate Limit (RPM)">
+															<Input 
+																type="number" 
+																min="1"
+																max="300"
+																value={override.rate_limit_rpm ?? globalSettings.rate_limit_rpm} 
+																onChange={(e) => setPerGameOverrides((s) => ({ 
+																	...s, 
+																	[game.app_id]: { ...override, rate_limit_rpm: Number(e.target.value), enabled } 
+																}))} 
+																disabled={running} 
+															/>
+														</FormField>
+														
+														<FormField label="Language">
+															<Select 
+																options={[
+																	{ label: "English", value: "english" }, 
+																	{ label: "Spanish", value: "spanish" }, 
+																	{ label: "German", value: "german" },
+																	{ label: "French", value: "french" },
+																	{ label: "Italian", value: "italian" },
+																	{ label: "Japanese", value: "japanese" }
+																]} 
+																value={override.language ?? globalSettings.language} 
+																onChange={(e) => setPerGameOverrides((s) => ({ 
+																	...s, 
+																	[game.app_id]: { ...override, language: e.target.value, enabled } 
+																}))} 
+																disabled={running} 
+															/>
+														</FormField>
+														
+														<FormField label="Early Access">
+															<Select 
+																options={[
+																	{ label: "Include", value: "include" }, 
+																	{ label: "Exclude", value: "exclude" }, 
+																	{ label: "Only", value: "only" }
+																]} 
+																value={override.early_access ?? globalSettings.early_access} 
+																onChange={(e) => setPerGameOverrides((s) => ({ 
+																	...s, 
+																	[game.app_id]: { ...override, early_access: e.target.value as any, enabled } 
+																}))} 
+																disabled={running} 
+															/>
+														</FormField>
+														
+														<FormField label="Start Date">
+															<Input 
+																type="date" 
+																value={override.start_date ?? ""} 
+																onChange={(e) => setPerGameOverrides((s) => ({ 
+																	...s, 
+																	[game.app_id]: { ...override, start_date: e.target.value || undefined, enabled } 
+																}))} 
+																disabled={running} 
+															/>
+														</FormField>
+														
+														<FormField label="End Date">
+															<Input 
+																type="date" 
+																value={override.end_date ?? ""} 
+																onChange={(e) => setPerGameOverrides((s) => ({ 
+																	...s, 
+																	[game.app_id]: { ...override, end_date: e.target.value || undefined, enabled } 
+																}))} 
+																disabled={running} 
+															/>
+														</FormField>
+													</FormGrid>
 									</div>
 								)}
-							</div>
+										</Card>
 						);
 					})}
 				</div>
-			</Card>
+						)}
+					</TabsContent>
+							</Tabs>
+						</div>
+					</CollapsibleContent>
+				</Card>
+			</Collapsible>
+			{/* Desktop Features Section */}
+			{activeGames.length > 0 && (
+				<Collapsible open={exportOpen} onOpenChange={setExportOpen}>
+					<Card>
+						<CollapsibleTrigger asChild>
+							<div className="flex items-center justify-between border-b border-border p-4 cursor-pointer hover:bg-muted/50 transition-colors">
+								<div>
+									<h3 className="text-lg font-semibold">Export & Analysis</h3>
+									<p className="text-sm text-muted-foreground">Export review data and analysis tools</p>
+								</div>
+							</div>
+						</CollapsibleTrigger>
+						<CollapsibleContent>
+							<div className="p-4 space-y-6">
+								{/* Game Selection */}
+								<FormField 
+									label="Select Game to Export" 
+									description="Choose which game's reviews to export"
+									required
+								>
+									<Select
+										options={[
+											{ label: "Select a game...", value: "", disabled: true },
+											...activeGames.map(game => ({
+												label: `${game.name} (${game.app_id})`,
+												value: game.app_id.toString()
+											}))
+										]}
+										value={selectedExportGame?.toString() || ""}
+										onChange={(e) => setSelectedExportGame(e.target.value ? Number(e.target.value) : null)}
+										placeholder="Select a game..."
+									/>
+								</FormField>
+
+								{/* Export Buttons */}
+								<div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+									<Button
+										variant="outline"
+										className="flex flex-col h-auto p-4 items-start"
+										onClick={() => handleExport("xlsx")}
+										disabled={!selectedExportGame}
+									>
+										<div className="flex items-center gap-2 mb-2">
+											<svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+												<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10V6M12 6L9 9M12 6L15 9M12 10V14M12 18H16.5M12 18H7.5M3 18V8C3 6.89543 3.89543 6 5 6H19C20.1046 6 21 6.89543 21 8V18C21 19.1046 20.1046 20 19 20H5C3.89543 20 3 19.1046 3 18Z" />
+											</svg>
+											<span className="font-medium">Export XLSX</span>
+										</div>
+										<span className="text-xs text-muted-foreground text-left">
+											Export as Excel file for advanced analysis
+										</span>
+									</Button>
+
+									<Button
+										variant="outline"
+										className="flex flex-col h-auto p-4 items-start"
+										onClick={() => handleExport("csv")}
+										disabled={!selectedExportGame}
+									>
+										<div className="flex items-center gap-2 mb-2">
+											<svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+												<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12H15M9 16H15M17 21H7C5.89543 21 5 20.1046 5 19V5C5 3.89543 5.89543 3 7 3H12.5858C12.851 3 13.1054 3.10536 13.2929 3.29289L18.7071 8.70711C18.8946 8.89464 19 9.149 19 9.41421V19C19 20.1046 18.1046 21 17 21Z" />
+										</svg>
+										<span className="font-medium">Export CSV</span>
+									</div>
+									<span className="text-xs text-muted-foreground text-left">
+										Export data as CSV for spreadsheet analysis
+									</span>
+								</Button>
+
+									<Button
+										variant="outline"
+										className="flex flex-col h-auto p-4 items-start"
+										disabled
+									>
+										<div className="flex items-center gap-2 mb-2">
+											<svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+												<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6L21 12L9 19Z" />
+											</svg>
+											<span className="font-medium">AI Analysis</span>
+										</div>
+										<span className="text-xs text-muted-foreground text-left">
+											Analyze reviews with LLM (Coming Soon)
+										</span>
+									</Button>
+
+									<Button
+										variant="outline"
+										className="flex flex-col h-auto p-4 items-start"
+										disabled
+									>
+										<div className="flex items-center gap-2 mb-2">
+											<svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+												<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 12L3 8L7 4M17 12L21 8L17 4M13 20L11 4" />
+											</svg>
+											<span className="font-medium">Auto Scheduler</span>
+										</div>
+										<span className="text-xs text-muted-foreground text-left">
+											Schedule automatic scraping (Coming Soon)
+										</span>
+									</Button>
+								</div>
+
+								{/* Quick Stats for Desktop */}
+								{selectedExportGame && (
+									<div className="mt-6 pt-4 border-t border-border">
+										<div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+											<div className="text-center">
+												<div className="text-2xl font-bold text-blue-600">{totalScraped}</div>
+												<div className="text-xs text-muted-foreground">Total Reviews Collected</div>
+											</div>
+											<div className="text-center">
+												<div className="text-2xl font-bold text-green-600">{Math.round(rpmNow)}</div>
+												<div className="text-xs text-muted-foreground">Current Rate (RPM)</div>
+											</div>
+											<div className="text-center">
+												<div className="text-2xl font-bold text-purple-600">{activeGames.length}</div>
+												<div className="text-xs text-muted-foreground">Games Queued</div>
+											</div>
+										</div>
+									</div>
+								)}
+							</div>
+						</CollapsibleContent>
+					</Card>
+				</Collapsible>
+			)}
 		</div>
 	);
 };

@@ -4,6 +4,12 @@ import { GameList } from "../components/GameList";
 import { ActiveList } from "../components/ActiveList";
 import { Game, GameSearchResponse } from "../types";
 import { addActiveGame, getActiveGames, removeActiveGame, searchGames } from "../api/games";
+
+// Add missing getBackfillStatus function - this should be implemented in the API
+const getBackfillStatus = async () => {
+  // Placeholder implementation - should be replaced with actual API call
+  return { state: "done", total: 0, processed: 0, error: null };
+};
 import { Card } from "../components/ui/Card";
 import { RadialProgress } from "../components/ui/RadialProgress";
 import toast from "react-hot-toast";
@@ -180,59 +186,173 @@ export const GameSelector: React.FC = () => {
       )}
 
       {/* Quick stats */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <Card title="Active games">
-          <div className="text-2xl font-semibold">{activeCount}</div>
+      <div className="grid grid-cols-1 gap-6 sm:grid-cols-3">
+        <Card>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-muted-foreground">Active Games</p>
+              <p className="text-3xl font-bold">{activeCount}</p>
+            </div>
+            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-gradient-to-br from-blue-500 to-cyan-600">
+              <svg className="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 4V2C7 1.44772 7.44772 1 8 1H16C16.5523 1 17 1.44772 17 2V4H20C20.5523 4 21 4.44772 21 5S20.5523 6 20 6H19V19C19 20.1046 18.1046 21 17 21H7C5.89543 21 5 20.1046 5 19V6H4C3.44772 6 3 5.55228 3 5S3.44772 4 4 4H7ZM9 8V17H11V8H9ZM13 8V17H15V8H13Z" />
+              </svg>
+            </div>
+          </div>
+          <div className="mt-2 text-xs text-muted-foreground">
+            Ready for scraping
+          </div>
         </Card>
-        <Card title="Last refreshed">
-          <div className="text-sm">{lastRefreshed ? new Date(lastRefreshed).toLocaleString() : "—"}</div>
+        
+        <Card>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-muted-foreground">Last Updated</p>
+              <p className="text-lg font-semibold">
+                {lastRefreshed ? new Date(lastRefreshed).toLocaleTimeString() : "Never"}
+              </p>
+            </div>
+            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-gradient-to-br from-green-500 to-emerald-600">
+              <svg className="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8V4L8 8L12 12L16 8L12 4Z" />
+              </svg>
+            </div>
+          </div>
+          <div className="mt-2 text-xs text-muted-foreground">
+            {lastRefreshed ? new Date(lastRefreshed).toLocaleDateString() : "Click refresh to update"}
+          </div>
         </Card>
-        <Card title="Tip">
-          <div className="text-sm text-muted-foreground">Add games to start scraping on the Scraper tab.</div>
+        
+        <Card>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-muted-foreground">Quick Tip</p>
+              <p className="text-sm font-medium">Ready to Scrape</p>
+            </div>
+            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-gradient-to-br from-purple-500 to-pink-600">
+              <svg className="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16H12V12H11M12 8H12.01M21 12C21 16.9706 16.9706 21 12 21C7.02944 21 3 16.9706 3 12C3 7.02944 7.02944 3 12 3C16.9706 3 21 7.02944 21 12Z" />
+              </svg>
+            </div>
+          </div>
+          <div className="mt-2 text-xs text-muted-foreground">
+            Switch to Scraper tab when ready
+          </div>
         </Card>
       </div>
 
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-        <section className="space-y-3">
-          <Card title="Search" actions={<span className="text-xs text-muted-foreground">Search by name or AppID</span>}>
-            <SearchBar onSearch={handleSearch} loading={loadingSearch} />
-            <div className="mt-3">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        {/* Search Section - Takes up 2/3 width on large screens */}
+        <section className="lg:col-span-2 space-y-4">
+          <Card>
+            <div className="flex items-center justify-between border-b border-border pb-4 mb-4">
+              <div>
+                <h3 className="text-lg font-semibold">Steam Game Search</h3>
+                <p className="text-sm text-muted-foreground">Search by game name or Steam App ID</p>
+              </div>
+              <div className="text-xs text-muted-foreground bg-muted px-2 py-1 rounded">
+                {totalResults ? `${totalResults.toLocaleString()} games available` : "Ready to search"}
+              </div>
+            </div>
+            
+            <div className="space-y-4">
+              <SearchBar onSearch={handleSearch} loading={loadingSearch} />
+              
               {loadingSearch ? (
-                <div className="space-y-2" data-testid="search-loading">
-                  {[...Array(4)].map((_, i) => (
-                    <div key={i} className="h-10 animate-pulse rounded bg-card/30" />
+                <div className="space-y-3" data-testid="search-loading">
+                  {[...Array(5)].map((_, i) => (
+                    <div key={i} className="flex items-center space-x-3 p-3 border rounded-lg">
+                      <div className="h-12 w-12 bg-muted rounded-lg animate-pulse" />
+                      <div className="flex-1 space-y-2">
+                        <div className="h-4 bg-muted rounded animate-pulse w-2/3" />
+                        <div className="h-3 bg-muted rounded animate-pulse w-1/3" />
+                      </div>
+                      <div className="h-8 w-16 bg-muted rounded animate-pulse" />
+                    </div>
                   ))}
                 </div>
               ) : (
                 <>
                   <GameList games={searchResults} onAdd={handleAdd} activeGames={activeGames} total={totalResults} />
 
-                  {/* pagination controls */}
-                  <div className="mt-3 flex items-center justify-between">
-                    <div className="text-sm text-muted-foreground">
-                      {searchResults.length > 0 ? `Showing ${showingFrom}–${showingTo}${hasMore ? "+" : ""}` : "No results"}
+                  {/* Enhanced pagination */}
+                  {searchResults.length > 0 && (
+                    <div className="flex items-center justify-between pt-4 border-t border-border">
+                      <div className="text-sm text-muted-foreground">
+                        Showing <span className="font-medium">{showingFrom}–{showingTo}</span>
+                        {hasMore && <span> of many</span>}
+                        {totalResults && totalResults <= showingTo && (
+                          <span> of <span className="font-medium">{totalResults}</span></span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button 
+                          variant="outline" 
+                          size="sm"
+                          onClick={handlePrev} 
+                          disabled={start === 0 || loadingSearch}
+                        >
+                          Previous
+                        </Button>
+                        <Button 
+                          variant="outline" 
+                          size="sm"
+                          onClick={handleNext} 
+                          disabled={!hasMore || loadingSearch}
+                        >
+                          Next
+                        </Button>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <Button variant="outline" onClick={handlePrev} disabled={start === 0 || loadingSearch}>
-                        Previous
-                      </Button>
-                      <Button variant="outline" onClick={handleNext} disabled={!hasMore || loadingSearch}>
-                        Next
-                      </Button>
-                    </div>
-                  </div>
+                  )}
                 </>
               )}
             </div>
           </Card>
         </section>
 
-        <section className="space-y-3">
-          <Card title="Active List" subtitle="Manage which games are queued for scraping">
-            <ActiveList games={activeGames} onRemove={handleRemove} />
-            {loadingActive && (
-              <div className="mt-2 text-sm text-muted-foreground" data-testid="active-loading">Refreshing...</div>
-            )}
+        {/* Active Games Section - Takes up 1/3 width on large screens */}
+        <section className="space-y-4">
+          <Card>
+            <div className="flex items-center justify-between border-b border-border pb-4 mb-4">
+              <div>
+                <h3 className="text-lg font-semibold">Active Queue</h3>
+                <p className="text-sm text-muted-foreground">Games ready for scraping</p>
+              </div>
+              <Button
+                onClick={loadActive}
+                variant="ghost"
+                size="sm"
+                disabled={loadingActive}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <ArrowPathIcon className={`h-4 w-4 ${loadingActive ? "animate-spin" : ""}`} />
+              </Button>
+            </div>
+            
+            <div className="space-y-3">
+              <ActiveList games={activeGames} onRemove={handleRemove} />
+              {loadingActive && (
+                <div className="flex items-center justify-center py-4">
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" />
+                    Refreshing...
+                  </div>
+                </div>
+              )}
+              
+              {activeGames.length === 0 && !loadingActive && (
+                <div className="text-center py-8 text-muted-foreground">
+                  <div className="mb-2">
+                    <svg className="mx-auto h-12 w-12 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M19 11H5M12 5L5 12L12 19" />
+                    </svg>
+                  </div>
+                  <div className="text-sm">No games selected</div>
+                  <div className="text-xs mt-1">Search and add games to get started</div>
+                </div>
+              )}
+            </div>
           </Card>
         </section>
       </div>
