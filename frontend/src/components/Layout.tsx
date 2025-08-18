@@ -54,7 +54,7 @@ export const Layout: React.FC<Props> = ({ children }) => {
           </div>
         </header>
 
-        <div className="flex-1 overflow-auto p-6">{children}</div>
+        <div className="flex-1 overflow-auto p-6 pb-12">{children}</div>
       </main>
     </SidebarProvider>
   );

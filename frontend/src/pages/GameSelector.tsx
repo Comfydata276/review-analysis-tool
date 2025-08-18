@@ -3,18 +3,13 @@ import { SearchBar } from "../components/SearchBar";
 import { GameList } from "../components/GameList";
 import { ActiveList } from "../components/ActiveList";
 import { Game, GameSearchResponse } from "../types";
-import { addActiveGame, getActiveGames, removeActiveGame, searchGames } from "../api/games";
-
-// Add missing getBackfillStatus function - this should be implemented in the API
-const getBackfillStatus = async () => {
-  // Placeholder implementation - should be replaced with actual API call
-  return { state: "done", total: 0, processed: 0, error: null };
-};
+import { addActiveGame, getActiveGames, removeActiveGame, searchGames, getBackfillStatus, startBackfill, getAppListStats } from "../api/games";
 import { Card } from "../components/ui/Card";
 import { RadialProgress } from "../components/ui/RadialProgress";
 import toast from "react-hot-toast";
 import { ArrowPathIcon } from "@heroicons/react/24/outline";
 import { Button } from "../components/ui/Button";
+import { ConfirmModal } from "../components/ConfirmModal";
 
 export const GameSelector: React.FC = () => {
   const [searchResults, setSearchResults] = useState<Game[]>([]);
@@ -28,6 +23,9 @@ export const GameSelector: React.FC = () => {
   const [backfillTotal, setBackfillTotal] = useState<number | null>(null);
   const [backfillProcessed, setBackfillProcessed] = useState<number | null>(null);
   const [backfillError, setBackfillError] = useState<string | null>(null);
+  const [applistCount, setApplistCount] = useState<number | null>(null);
+  const [applistUpdated, setApplistUpdated] = useState<string | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   // pagination
   const PAGE_SIZE = 200; // server allows larger windows; backend now supports up to 1000
@@ -67,6 +65,10 @@ export const GameSelector: React.FC = () => {
         setBackfillTotal(typeof resp.total === "number" ? resp.total : null);
         setBackfillProcessed(typeof resp.processed === "number" ? resp.processed : null);
         setBackfillError(resp.error || null);
+        // if backend provides timestamps, use finished_at for applist updated time
+        if (resp.finished_at) {
+          setApplistUpdated(new Date(resp.finished_at).toLocaleString());
+        }
       } catch (e) {
         // ignore; keep polling in case of transient errors
       } finally {
@@ -82,6 +84,21 @@ export const GameSelector: React.FC = () => {
       if (timer) clearTimeout(timer);
     };
   }, []);
+
+  // Fetch applist stats (reads DB) on mount
+  const fetchAppListStats = useCallback(async () => {
+    try {
+      const stats = await getAppListStats();
+      setApplistCount(typeof stats.count === "number" ? stats.count : null);
+      setApplistUpdated(stats.last_seen ? new Date(stats.last_seen).toLocaleString() : null);
+    } catch (e) {
+      // ignore
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchAppListStats();
+  }, [fetchAppListStats]);
 
   const doSearch = useCallback(async (q: string, s = 0) => {
     try {
@@ -169,21 +186,7 @@ export const GameSelector: React.FC = () => {
         </div>
       )}
 
-      {/* Backfill status */}
-      {backfillState && backfillState !== "done" && (
-        <Card title="Indexing Steam apps" subtitle={backfillState === "running" ? `Populating ${backfillProcessed ?? "?"}/${backfillTotal ?? "?"}` : `Status: ${backfillState}`}>
-          <div className="flex items-center gap-4">
-            <RadialProgress value={backfillTotal ? Math.floor(((backfillProcessed || 0) / backfillTotal) * 100) : 0} size={64} stroke={8} />
-            <div className="text-sm">
-              {backfillState === "running" ? (
-                <div>Populating local Steam app list ({backfillProcessed ?? "?"}/{backfillTotal ?? "?"})</div>
-              ) : (
-                <div>Backfill status: {backfillState}. {backfillError && <span className="text-destructive">{backfillError}</span>}</div>
-              )}
-            </div>
-          </div>
-        </Card>
-      )}
+      {/* Backfill status widget removed; applist info is shown in App List card */}
 
       {/* Quick stats */}
       <div className="grid grid-cols-1 gap-6 sm:grid-cols-3">
@@ -207,21 +210,42 @@ export const GameSelector: React.FC = () => {
         <Card>
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-muted-foreground">Last Updated</p>
-              <p className="text-lg font-semibold">
-                {lastRefreshed ? new Date(lastRefreshed).toLocaleTimeString() : "Never"}
-              </p>
+              <p className="text-sm font-medium text-muted-foreground">App List</p>
+              <p className="text-3xl font-bold">{applistCount !== null ? applistCount : "–"}</p>
             </div>
-            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-gradient-to-br from-green-500 to-emerald-600">
-              <svg className="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8V4L8 8L12 12L16 8L12 4Z" />
-              </svg>
+            <div className="flex items-center gap-2">
+              <Button variant="ghost" size="sm" onClick={fetchAppListStats} aria-label="Refresh applist stats">
+                Refresh
+              </Button>
+              <Button variant="default" size="sm" onClick={() => setConfirmOpen(true)} disabled={backfillState === "running"}>
+                Update
+              </Button>
             </div>
           </div>
           <div className="mt-2 text-xs text-muted-foreground">
-            {lastRefreshed ? new Date(lastRefreshed).toLocaleDateString() : "Click refresh to update"}
+            Last updated: {applistUpdated ?? "Unknown"}
           </div>
         </Card>
+
+        {/* Confirmation modal for starting a full backfill */}
+        <ConfirmModal
+          open={confirmOpen}
+          title="Start App List Update"
+          description="This will fetch the full Steam app list and upsert into the local DB. It may take several minutes. Proceed?"
+          confirmLabel="Start"
+          cancelLabel="Cancel"
+          onClose={() => setConfirmOpen(false)}
+          onConfirm={async () => {
+            try {
+              await startBackfill();
+              toast.success("App list update started");
+            } catch (e: any) {
+              toast.error(e?.message || "Failed to start backfill");
+            }
+            // refresh stats after a small delay to pick up quick updates
+            setTimeout(() => fetchAppListStats(), 2000);
+          }}
+        />
         
         <Card>
           <div className="flex items-center justify-between">
@@ -277,31 +301,13 @@ export const GameSelector: React.FC = () => {
 
                   {/* Enhanced pagination */}
                   {searchResults.length > 0 && (
-                    <div className="flex items-center justify-between pt-4 border-t border-border">
+                    <div className="pt-4 border-t border-border">
                       <div className="text-sm text-muted-foreground">
                         Showing <span className="font-medium">{showingFrom}–{showingTo}</span>
                         {hasMore && <span> of many</span>}
                         {totalResults && totalResults <= showingTo && (
                           <span> of <span className="font-medium">{totalResults}</span></span>
                         )}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Button 
-                          variant="outline" 
-                          size="sm"
-                          onClick={handlePrev} 
-                          disabled={start === 0 || loadingSearch}
-                        >
-                          Previous
-                        </Button>
-                        <Button 
-                          variant="outline" 
-                          size="sm"
-                          onClick={handleNext} 
-                          disabled={!hasMore || loadingSearch}
-                        >
-                          Next
-                        </Button>
                       </div>
                     </div>
                   )}

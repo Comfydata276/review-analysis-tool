@@ -14,7 +14,8 @@ export const SearchBar: React.FC<Props> = ({ onSearch, loading = false }) => {
 	return (
 		<div className="flex items-center gap-3" data-testid="search-bar">
 			<div className="flex w-full items-center gap-2">
-				<div className="flex items-center gap-2 rounded-md border border-input bg-card px-3 py-1.5 w-full">
+				{/* removed border from internal wrapper so only the large outer box shows */}
+				<div className="flex items-center gap-2 rounded-md bg-card px-3 py-1.5 w-full">
 					<MagnifyingGlassIcon className="h-5 w-5 text-muted-foreground" />
 					<Input
 						value={value}
@@ -23,7 +24,7 @@ export const SearchBar: React.FC<Props> = ({ onSearch, loading = false }) => {
 						onKeyDown={(e) => {
 							if (e.key === "Enter" && value.trim()) onSearch(value.trim());
 						}}
-						className="bg-transparent"
+						className="bg-transparent border-none shadow-none"
 						data-testid="search-input"
 					/>
 					{value && (

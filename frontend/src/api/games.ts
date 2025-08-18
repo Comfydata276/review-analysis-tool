@@ -31,6 +31,16 @@ export async function getAppList(): Promise<Game[]> {
 	return handleResponse<Game[]>(resp);
 }
 
+export async function startBackfill(): Promise<any> {
+    const resp = await fetch(`${BASE_URL}/games/backfill/start`, { method: "POST" });
+    return handleResponse<any>(resp);
+}
+
+export async function getAppListStats(): Promise<{count: number; last_seen: string | null}> {
+    const resp = await fetch(`${BASE_URL}/games/applist/stats`);
+    return handleResponse<any>(resp);
+}
+
 export async function getBackfillStatus(): Promise<{state: string; total: number; processed: number; started_at?: string | null; finished_at?: string | null; error?: string | null}> {
 	const resp = await fetch(`${BASE_URL}/games/backfill/status`);
 	return handleResponse<any>(resp);

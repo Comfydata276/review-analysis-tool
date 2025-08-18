@@ -281,22 +281,22 @@ export const Scraper: React.FC = () => {
 			
 			{/* Quick Action Bar */}
 			{!running && activeGames.length === 0 && (
-				<div className="bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+				<Card className="p-4">
 					<div className="flex items-center gap-3">
-						<div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-100 dark:bg-blue-900">
-							<svg className="h-5 w-5 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted">
+							<svg className="h-5 w-5 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 								<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
 							</svg>
 						</div>
 						<div className="flex-1">
-							<h3 className="font-medium text-blue-900 dark:text-blue-100">Ready to Start</h3>
-							<p className="text-sm text-blue-700 dark:text-blue-300">Add games from the Game Selector tab to begin scraping reviews.</p>
+							<h3 className="font-medium text-foreground">Ready to Start</h3>
+							<p className="text-sm text-muted-foreground">Add games from the Game Selector tab to begin scraping reviews.</p>
 						</div>
 						<Button variant="outline" size="sm" onClick={() => window.location.href = '/selector'}>
 							Go to Game Selector
 						</Button>
 					</div>
-				</div>
+				</Card>
 			)}
 
 			{/* Stats */}
@@ -687,7 +687,6 @@ export const Scraper: React.FC = () => {
 								>
 									<Select
 										options={[
-											{ label: "Select a game...", value: "", disabled: true },
 											...activeGames.map(game => ({
 												label: `${game.name} (${game.app_id})`,
 												value: game.app_id.toString()

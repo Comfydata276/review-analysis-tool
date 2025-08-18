@@ -88,3 +88,52 @@ def backfill_status():
 	}
 
 
+@router.post("/backfill/start")
+def backfill_start():
+    """Start a background backfill to populate or update the local applist.
+
+    This schedules the same upsert logic used on first-run and returns immediately.
+    """
+    svc = get_default_service()
+    svc.start_background()
+    return {"message": "backfill_started"}
+
+
+@router.get("/applist/stats")
+def applist_stats():
+    """Return basic stats about the local applist DB: count and last_seen timestamp.
+
+    This reads the SQLite DB directly and does not trigger any remote fetch.
+    """
+    import sqlite3
+    db_path = settings.DATABASE_URL.replace("sqlite:///", "")
+    try:
+        conn = sqlite3.connect(db_path)
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM steam_apps;")
+        count_row = cur.fetchone()
+        count = count_row[0] if count_row else 0
+        cur.execute("SELECT MAX(last_seen) FROM steam_apps;")
+        last_row = cur.fetchone()
+        raw_last = last_row[0] if last_row and last_row[0] else None
+        # Stored timestamps are in SQLite datetime format 'YYYY-MM-DD HH:MM:SS'
+        # Convert to ISO 8601 UTC (append 'Z') so clients can convert to local time reliably.
+        if raw_last:
+            try:
+                last_seen = raw_last.replace(" ", "T") + "Z"
+            except Exception:
+                last_seen = raw_last
+        else:
+            last_seen = None
+    except Exception:
+        count = 0
+        last_seen = None
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+    return {"count": count, "last_seen": last_seen}
+
+
