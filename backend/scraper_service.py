@@ -30,9 +30,16 @@ def parse_date(date_str: Optional[str], *, end_of_day: bool = False) -> Optional
 
 @dataclass
 class ScrapeSettings:
-	max_reviews: int
+	# Order fields so non-defaults come before defaults to satisfy dataclass rules.
+	# Required (non-default) fields:
 	rate_limit_rpm: int
 	language: str
+	# Optional cap; when None and complete_scraping is True we attempt to fetch all matches
+	max_reviews: Optional[int] = None
+	complete_scraping: bool = False
+	# Playtime filters in hours
+	min_playtime: Optional[float] = None
+	max_playtime: Optional[float] = None
 	start_date: Optional[datetime] = None
 	end_date: Optional[datetime] = None
 	early_access: str = "include"  # include | exclude | only
@@ -50,6 +57,12 @@ class Progress:
 	global_scraped: int = 0
 	global_total: int = 0
 	avg_request_seconds: float = 0.0
+	# rate limit (requests per minute) used to compute ETA conservatively
+	rate_limit_rpm: int = 60
+	# Timestamp when current run started (UTC)
+	start_time: Optional[datetime] = None
+	# global_scraped value at start_time (so we can compute observed rate)
+	start_global_scraped: int = 0
 	requests_made: int = 0
 	logs: List[str] = field(default_factory=list)
 	stop_requested: bool = False
@@ -60,18 +73,42 @@ class Progress:
 			self.logs = self.logs[-100:]
 
 	def eta_seconds_current(self) -> int:
-		if self.current_game_total <= 0 or self.avg_request_seconds <= 0:
+		if self.current_game_total <= 0:
 			return 0
 		remaining_reviews = max(self.current_game_total - self.current_game_scraped, 0)
-		remaining_requests = (remaining_reviews + 99) // 100
-		return int(remaining_requests * self.avg_request_seconds)
+		# Estimate reviews/sec using observed rate (saves since start) capped by
+		# the theoretical max given the rate limit and page size.
+		theoretical_reviews_per_sec = (self.rate_limit_rpm * 100.0) / 60.0
+		observed_rate = 0.0
+		if self.start_time is not None:
+			elapsed = (datetime.utcnow() - self.start_time).total_seconds()
+			if elapsed > 0:
+				observed = max(0, self.global_scraped - self.start_global_scraped)
+				observed_rate = observed / elapsed
+		# If we have an observed rate use it (but never exceed theoretical max),
+		# otherwise fall back to a conservative fraction of the theoretical max.
+		expected_rate = observed_rate if observed_rate > 0 else (theoretical_reviews_per_sec * 0.9)
+		expected_rate = min(expected_rate, theoretical_reviews_per_sec)
+		if expected_rate <= 0:
+			return 0
+		return int(remaining_reviews / expected_rate)
 
 	def eta_seconds_global(self) -> int:
-		if self.global_total <= 0 or self.avg_request_seconds <= 0:
+		if self.global_total <= 0:
 			return 0
 		remaining_reviews = max(self.global_total - self.global_scraped, 0)
-		remaining_requests = (remaining_reviews + 99) // 100
-		return int(remaining_requests * self.avg_request_seconds)
+		theoretical_reviews_per_sec = (self.rate_limit_rpm * 100.0) / 60.0
+		observed_rate = 0.0
+		if self.start_time is not None:
+			elapsed = (datetime.utcnow() - self.start_time).total_seconds()
+			if elapsed > 0:
+				observed = max(0, self.global_scraped - self.start_global_scraped)
+				observed_rate = observed / elapsed
+		expected_rate = observed_rate if observed_rate > 0 else (theoretical_reviews_per_sec * 0.9)
+		expected_rate = min(expected_rate, theoretical_reviews_per_sec)
+		if expected_rate <= 0:
+			return 0
+		return int(remaining_reviews / expected_rate)
 
 
 class ScraperService:
@@ -100,8 +137,11 @@ class ScraperService:
 			per_game_overrides: Dict[str, Dict[str, Any]] = settings_payload.get("per_game_overrides", {})
 
 			def make_settings(raw: Dict[str, Any]) -> ScrapeSettings:
+				complete = bool(raw.get("complete_scraping", False))
+				max_rev = None if complete else int(raw.get("max_reviews", 1000))
 				return ScrapeSettings(
-					max_reviews=int(raw.get("max_reviews", 1000)),
+					max_reviews=max_rev,
+					complete_scraping=complete,
 					rate_limit_rpm=max(1, int(raw.get("rate_limit_rpm", 60))),
 					language=str(raw.get("language", "english")),
 					start_date=parse_date(raw.get("start_date"), end_of_day=False),
@@ -111,6 +151,10 @@ class ScraperService:
 				)
 
 			g_settings = make_settings(global_settings)
+			# Initialize run-level ETA baselines
+			self.progress.start_time = datetime.utcnow()
+			self.progress.start_global_scraped = 0
+			self.progress.rate_limit_rpm = g_settings.rate_limit_rpm
 
 			# Load active games
 			db: Session = SessionLocal()
@@ -120,9 +164,16 @@ class ScraperService:
 				db.close()
 				raise
 
-			# Initialize global total estimate as sum of per-game max (rough)
-			self.progress.global_total = len(active_games) * g_settings.max_reviews
+			# Initialize global total estimate. When doing complete scraping we
+			# don't have a per-game cap so initialize to 0 and accumulate when
+			# each game's store-provided total is known.
+			if g_settings.complete_scraping:
+				self.progress.global_total = 0
+			else:
+				self.progress.global_total = len(active_games) * (g_settings.max_reviews or 0)
 			self.progress.global_scraped = 0
+			self.progress.start_time = datetime.utcnow()
+			self.progress.start_global_scraped = self.progress.global_scraped
 
 			for game in active_games:
 				if self.progress.stop_requested:
@@ -141,10 +192,12 @@ class ScraperService:
 
 	async def _scrape_game(self, game: models.Game, settings_for_game: ScrapeSettings) -> None:
 		self.progress.current_game = {"app_id": game.app_id, "name": game.name}
+		# Initialize current scraped count with existing DB matches so UI shows correct starting point
 		self.progress.current_game_scraped = 0
 		self.progress.current_game_total = 0
-		# set the user requested target for UI/progress (requested max reviews)
-		self.progress.current_game_target = settings_for_game.max_reviews
+		# Show the configured target for UI; for complete scraping this may be
+		# unknown until we learn the store's total for the game.
+		self.progress.current_game_target = settings_for_game.max_reviews or 0
 		self.progress.log(f"Starting scrape for {game.name} ({game.app_id})")
 
 		cursor = "*"
@@ -229,21 +282,35 @@ class ScraperService:
 			finally:
 				db2.close()
 
+			# Add existing DB count to progress so UI logs/ETA start from current DB state
+			self.progress.current_game_scraped = existing_db_count
+			self.progress.global_scraped += existing_db_count
 			# If already have enough reviews, skip scraping
 			# Debug: log counts to help diagnose resume behavior
 			self.progress.log(
 				f"Resume check for {game.name}: latest_in_db={latest}, configured_start={configured_start}, existing_matches={existing_db_count}, requested_max={settings_for_game.max_reviews}"
 			)
-			remaining_needed = max(0, settings_for_game.max_reviews - existing_db_count)
-			if remaining_needed <= 0:
-				self.progress.current_game_scraped = existing_db_count
-				self.progress.global_scraped += existing_db_count
+			# Additional debug to help understand complete_scraping behavior
+			self.progress.log(
+				f"Settings: complete_scraping={settings_for_game.complete_scraping}, rate_limit={settings_for_game.rate_limit_rpm}, language={settings_for_game.language}"
+			)
+			# If complete_scraping is requested, we don't cap by max_reviews and
+			# instead attempt to fetch all reviews (remaining_needed=None).
+			if settings_for_game.complete_scraping:
+				remaining_needed = None
+			else:
+				remaining_needed = max(0, (settings_for_game.max_reviews or 0) - existing_db_count)
+			if remaining_needed is not None and remaining_needed <= 0:
 				self.progress.log(f"No new reviews for '{game.name}' are avaliable. All reviews that meet the configuration settings have been gathered.")
 				return
+			# Log computed remaining_needed before scraping
+			self.progress.log(f"Computed remaining_needed={remaining_needed}")
 
-			# If user did not set a start_date and DB already has some reviews but fewer than requested,
-			# allow scraping older pages by clearing the resume threshold.
-			if configured_start is None and existing_db_count > 0 and remaining_needed > 0:
+			# If user did not set a start_date and DB already has some reviews, allow
+			# scraping older pages by clearing the resume threshold. This must also
+			# apply when `complete_scraping` is requested (remaining_needed is None),
+			# so treat None as "more needed".
+			if configured_start is None and existing_db_count > 0 and (remaining_needed is None or remaining_needed > 0):
 				threshold_start = None
 
 			while True:
@@ -279,13 +346,25 @@ class ScraperService:
 					# reviews than requested, use the store count.
 					q_total = int(qsum.get("total_reviews") or qsum.get("num_reviews") or 0)
 					if q_total > 0:
-						self.progress.current_game_total = min(q_total, settings_for_game.max_reviews)
+						if settings_for_game.complete_scraping:
+							# When doing complete scraping, prefer the store's total
+							self.progress.current_game_total = q_total
+						else:
+							self.progress.current_game_total = min(q_total, settings_for_game.max_reviews or 0)
 					else:
-						# Fallback to requested max if store doesn't provide an estimate
-						self.progress.current_game_total = settings_for_game.max_reviews
-					# Adjust global total by replacing per-game rough estimate with the chosen estimate
-					self.progress.global_total -= settings_for_game.max_reviews
-					self.progress.global_total += self.progress.current_game_total
+						# Fallback to requested max (or 0) if store doesn't provide an estimate
+						self.progress.current_game_total = settings_for_game.max_reviews or 0
+					# Adjust global total. If global_total was initialized to 0
+					# (complete mode) just accumulate; otherwise replace the
+					# per-game rough estimate with the chosen estimate.
+					if self.progress.global_total <= 0:
+						self.progress.global_total += self.progress.current_game_total
+					else:
+						self.progress.global_total -= (settings_for_game.max_reviews or 0)
+						self.progress.global_total += self.progress.current_game_total
+					# If we're doing complete scraping, update the UI target to the store total
+					if settings_for_game.complete_scraping:
+						self.progress.current_game_target = self.progress.current_game_total
 
 				# If all returned reviews are older than our threshold (i.e. nothing new), stop
 				if reviews:
@@ -316,7 +395,8 @@ class ScraperService:
 				saved_count += saved_this_batch
 				self.progress.current_game_scraped += saved_this_batch
 				self.progress.global_scraped += saved_this_batch
-				remaining_needed -= saved_this_batch
+				if remaining_needed is not None:
+					remaining_needed -= saved_this_batch
 				# Track duplicate/no-save pages when starting from newest; helps decide when to jump to saved cursor
 				if saved_this_batch == 0:
 					consecutive_no_save_pages += 1
@@ -357,7 +437,7 @@ class ScraperService:
 
 				if not reviews:
 					break
-				if remaining_needed <= 0:
+				if remaining_needed is not None and remaining_needed <= 0:
 					break
 
 				# Next cursor
@@ -420,6 +500,13 @@ class ScraperService:
 					continue
 				if end_date_cmp and review_date > end_date_cmp:
 					continue
+				# Playtime filters (hours)
+				min_pt = settings_for_game.min_playtime
+				max_pt = settings_for_game.max_playtime
+				if min_pt is not None and playtime_hours < float(min_pt):
+					continue
+				if max_pt is not None and playtime_hours > float(max_pt):
+					continue
 				if settings_for_game.early_access == "exclude" and early_access:
 					continue
 				if settings_for_game.early_access == "only" and not early_access:
@@ -444,6 +531,16 @@ class ScraperService:
 					language=language,
 					early_access=early_access,
 					received_for_free=received_for_free,
+					# Additional fields from Steam payload
+					timestamp_updated=(utc_from_unix(int(r.get("timestamp_updated"))) if r.get("timestamp_updated") is not None else None),
+					votes_helpful=(r.get("votes_helpful") if r.get("votes_helpful") is not None else None),
+					weighted_vote_score=(r.get("weighted_vote_score") if r.get("weighted_vote_score") is not None else None),
+					comment_count=(r.get("comment_count") if r.get("comment_count") is not None else None),
+					author_num_games_owned=((r.get("author") or {}).get("num_games_owned") if (r.get("author") or {}).get("num_games_owned") is not None else None),
+					author_num_reviews=((r.get("author") or {}).get("num_reviews") if (r.get("author") or {}).get("num_reviews") is not None else None),
+					author_playtime_last_two_weeks=((r.get("author") or {}).get("playtime_last_two_weeks") if (r.get("author") or {}).get("playtime_last_two_weeks") is not None else None),
+					author_last_played=(utc_from_unix(int((r.get("author") or {}).get("last_played"))) if (r.get("author") or {}).get("last_played") is not None else None),
+					steam_purchase=(bool(r.get("steam_purchase")) if r.get("steam_purchase") is not None else None),
 				)
 				db.add(obj)
 				saved += 1

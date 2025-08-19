@@ -1,12 +1,15 @@
 export interface ScraperSettings {
 	global_settings: {
-		max_reviews: number;
+		max_reviews?: number;
+		complete_scraping?: boolean;
 		rate_limit_rpm: number;
 		language: string;
 		start_date?: string;
 		end_date?: string;
 		early_access: "include" | "exclude" | "only";
 		received_for_free: "include" | "exclude" | "only";
+		min_playtime?: number;
+		max_playtime?: number;
 	};
 	per_game_overrides: {
 		[app_id: number]: Partial<ScraperSettings["global_settings"]>;

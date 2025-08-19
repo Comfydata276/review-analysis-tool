@@ -33,6 +33,16 @@ class ReviewBase(BaseModel):
 	language: str
 	early_access: bool = False
 	received_for_free: bool = False
+	# Additional Steam fields
+	timestamp_updated: Optional[datetime] = None
+	votes_helpful: Optional[int] = None
+	weighted_vote_score: Optional[float] = None
+	comment_count: Optional[int] = None
+	author_num_games_owned: Optional[int] = None
+	author_num_reviews: Optional[int] = None
+	author_playtime_last_two_weeks: Optional[float] = None
+	author_last_played: Optional[datetime] = None
+	steam_purchase: Optional[bool] = None
 
 
 class ReviewCreate(ReviewBase):

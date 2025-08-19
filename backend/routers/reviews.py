@@ -124,7 +124,7 @@ def export_reviews(app_id: int, format: str = Query("csv", regex="^(csv|xlsx)$")
     if not rows:
         raise HTTPException(status_code=404, detail="No reviews found for given app_id")
 
-    # Common headers/fields (match Review model)
+    # Export all fields present in the Review model
     headers = [
         "review_id",
         "app_id",
@@ -135,6 +135,15 @@ def export_reviews(app_id: int, format: str = Query("csv", regex="^(csv|xlsx)$")
         "playtime_hours",
         "early_access",
         "received_for_free",
+        "timestamp_updated",
+        "votes_helpful",
+        "weighted_vote_score",
+        "comment_count",
+        "author_num_games_owned",
+        "author_num_reviews",
+        "author_playtime_last_two_weeks",
+        "author_last_played",
+        "steam_purchase",
         "scraped_at",
     ]
 
@@ -154,6 +163,15 @@ def export_reviews(app_id: int, format: str = Query("csv", regex="^(csv|xlsx)$")
                 r.playtime_hours if r.playtime_hours is not None else "",
                 str(bool(r.early_access)),
                 str(bool(r.received_for_free)),
+                r.timestamp_updated.isoformat() if getattr(r, 'timestamp_updated', None) is not None else "",
+                r.votes_helpful if getattr(r, 'votes_helpful', None) is not None else "",
+                r.weighted_vote_score if getattr(r, 'weighted_vote_score', None) is not None else "",
+                r.comment_count if getattr(r, 'comment_count', None) is not None else "",
+                r.author_num_games_owned if getattr(r, 'author_num_games_owned', None) is not None else "",
+                r.author_num_reviews if getattr(r, 'author_num_reviews', None) is not None else "",
+                r.author_playtime_last_two_weeks if getattr(r, 'author_playtime_last_two_weeks', None) is not None else "",
+                r.author_last_played.isoformat() if getattr(r, 'author_last_played', None) is not None else "",
+                str(bool(r.steam_purchase)) if getattr(r, 'steam_purchase', None) is not None else "",
                 r.scraped_at.isoformat() if r.scraped_at is not None else "",
             ])
         data = output.getvalue().encode("utf-8")
@@ -179,6 +197,15 @@ def export_reviews(app_id: int, format: str = Query("csv", regex="^(csv|xlsx)$")
                 r.playtime_hours if r.playtime_hours is not None else "",
                 str(bool(r.early_access)),
                 str(bool(r.received_for_free)),
+                r.timestamp_updated.isoformat() if getattr(r, 'timestamp_updated', None) is not None else "",
+                r.votes_helpful if getattr(r, 'votes_helpful', None) is not None else "",
+                r.weighted_vote_score if getattr(r, 'weighted_vote_score', None) is not None else "",
+                r.comment_count if getattr(r, 'comment_count', None) is not None else "",
+                r.author_num_games_owned if getattr(r, 'author_num_games_owned', None) is not None else "",
+                r.author_num_reviews if getattr(r, 'author_num_reviews', None) is not None else "",
+                r.author_playtime_last_two_weeks if getattr(r, 'author_playtime_last_two_weeks', None) is not None else "",
+                r.author_last_played.isoformat() if getattr(r, 'author_last_played', None) is not None else "",
+                str(bool(r.steam_purchase)) if getattr(r, 'steam_purchase', None) is not None else "",
                 r.scraped_at.isoformat() if r.scraped_at is not None else "",
             ])
         buf = io.BytesIO()

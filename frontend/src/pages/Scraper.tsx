@@ -506,6 +506,30 @@ export const Scraper: React.FC = () => {
 							/>
 								</FormField>
 
+								<FormField label="Min Playtime (hours)" description="Only include reviews with at least this many hours played">
+							<Input
+								type="number"
+								min="0"
+								step="0.1"
+								value={globalSettings.min_playtime ?? ""}
+								onChange={(e) => setGlobalSettings((s) => ({ ...s, min_playtime: e.target.value === "" ? undefined : Number(e.target.value) }))}
+								disabled={running}
+								data-testid="min-playtime"
+							/>
+							</FormField>
+
+						<FormField label="Max Playtime (hours)" description="Only include reviews with no more than this many hours played">
+							<Input
+								type="number"
+								min="0"
+								step="0.1"
+								value={globalSettings.max_playtime ?? ""}
+								onChange={(e) => setGlobalSettings((s) => ({ ...s, max_playtime: e.target.value === "" ? undefined : Number(e.target.value) }))}
+								disabled={running}
+								data-testid="max-playtime"
+							/>
+							</FormField>
+
 								<FormField label="Complete Scraping" description="When enabled, scrape all available reviews and disable Max Reviews per Game">
 									<div>
 										<Button

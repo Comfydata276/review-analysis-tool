@@ -29,6 +29,16 @@ class Review(Base):
 	language = Column(String, nullable=False)
 	early_access = Column(Boolean, default=False, nullable=False)
 	received_for_free = Column(Boolean, default=False, nullable=False)
+	# Additional Steam fields
+	timestamp_updated = Column(DateTime, nullable=True)
+	votes_helpful = Column(Integer, nullable=True)
+	weighted_vote_score = Column(Float, nullable=True)
+	comment_count = Column(Integer, nullable=True)
+	author_num_games_owned = Column(Integer, nullable=True)
+	author_num_reviews = Column(Integer, nullable=True)
+	author_playtime_last_two_weeks = Column(Float, nullable=True)
+	author_last_played = Column(DateTime, nullable=True)
+	steam_purchase = Column(Boolean, nullable=True)
 	scraped_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 	game = relationship("Game", back_populates="reviews")
