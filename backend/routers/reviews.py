@@ -70,45 +70,7 @@ def delete_reviews_by_game(
     return {"app_id": app_id, "deleted_count": count, "dry_run": False}
 
 
-
-@router.get("/cursors")
-def list_cursors(app_id: Optional[int] = Query(None), params_hash: Optional[str] = Query(None), db: Session = Depends(get_db)):
-    """List stored scrape cursors. Filter by `app_id` and/or `params_hash`."""
-    q = db.query(models.ScrapeCursor)
-    if app_id is not None:
-        q = q.filter(models.ScrapeCursor.app_id == app_id)
-    if params_hash is not None:
-        q = q.filter(models.ScrapeCursor.params_hash == params_hash)
-    rows = q.order_by(models.ScrapeCursor.updated_at.desc()).all()
-    return [
-        {
-            "id": r.id,
-            "app_id": r.app_id,
-            "params_hash": r.params_hash,
-            "cursor": r.cursor,
-            "updated_at": r.updated_at,
-        }
-        for r in rows
-    ]
-
-
-@router.delete("/cursors")
-def delete_cursors(app_id: Optional[int] = Query(None), params_hash: Optional[str] = Query(None), db: Session = Depends(get_db)):
-    """Delete stored cursors. Provide `app_id` or `params_hash` (or both)."""
-    if app_id is None and params_hash is None:
-        from fastapi import HTTPException
-
-        raise HTTPException(status_code=400, detail="Must provide app_id and/or params_hash to delete cursors")
-    q = db.query(models.ScrapeCursor)
-    if app_id is not None:
-        q = q.filter(models.ScrapeCursor.app_id == app_id)
-    if params_hash is not None:
-        q = q.filter(models.ScrapeCursor.params_hash == params_hash)
-    count = q.with_entities(func.count()).scalar() or 0
-    q.delete(synchronize_session=False)
-    db.commit()
-    return {"deleted_count": count}
-
+# Cursor endpoints removed: cursor persistence is no longer used by the scraper.
 
 
 @router.get("/export/{app_id}")

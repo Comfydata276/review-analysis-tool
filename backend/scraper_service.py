@@ -121,6 +121,25 @@ class ScraperService:
 		async with self._lock:
 			if self.progress.is_running:
 				raise RuntimeError("Scraper already running")
+			# Validate playtime bounds in global settings and per-game overrides
+			global_settings = settings_payload.get("global_settings", {})
+			def _to_float_safe(v):
+				try:
+					return float(v) if v is not None else None
+				except Exception:
+					return None
+			min_pt = _to_float_safe(global_settings.get("min_playtime"))
+			max_pt = _to_float_safe(global_settings.get("max_playtime"))
+			if min_pt is not None and max_pt is not None and max_pt <= min_pt:
+				raise ValueError("Max playtime must be greater than Min playtime")
+			# Validate per-game overrides
+			per_game_overrides: Dict[str, Dict[str, Any]] = settings_payload.get("per_game_overrides", {})
+			for k, override in (per_game_overrides or {}).items():
+				omin = _to_float_safe(override.get("min_playtime"))
+				omax = _to_float_safe(override.get("max_playtime"))
+				if omin is not None and omax is not None and omax <= omin:
+					raise ValueError(f"For override {k}: Max playtime must be greater than Min playtime")
+
 			self.progress = Progress(is_running=True)
 			self.progress.log("Starting scraper")
 			self._task = asyncio.create_task(self._run(settings_payload))
@@ -139,6 +158,15 @@ class ScraperService:
 			def make_settings(raw: Dict[str, Any]) -> ScrapeSettings:
 				complete = bool(raw.get("complete_scraping", False))
 				max_rev = None if complete else int(raw.get("max_reviews", 1000))
+				# parse optional numeric filters safely
+				def _to_float(v: Any) -> Optional[float]:
+					if v is None or v == "":
+						return None
+					try:
+						return float(v)
+					except Exception:
+						return None
+
 				return ScrapeSettings(
 					max_reviews=max_rev,
 					complete_scraping=complete,
@@ -148,6 +176,8 @@ class ScraperService:
 					end_date=parse_date(raw.get("end_date"), end_of_day=True),
 					early_access=str(raw.get("early_access", "include")),
 					received_for_free=str(raw.get("received_for_free", "include")),
+					min_playtime=_to_float(raw.get("min_playtime")),
+					max_playtime=_to_float(raw.get("max_playtime")),
 				)
 
 			g_settings = make_settings(global_settings)
@@ -203,37 +233,42 @@ class ScraperService:
 		cursor = "*"
 		saved_count = 0
 		no_new_found = False
-		# Load last saved cursor for this game (if any)
-		# compute params hash to key cursors per app+params
-		import hashlib, json
-		params_key = {
-			"language": settings_for_game.language,
-			"start_date": settings_for_game.start_date.isoformat() if settings_for_game.start_date else None,
-			"end_date": settings_for_game.end_date.isoformat() if settings_for_game.end_date else None,
-			"early_access": settings_for_game.early_access,
-			"received_for_free": settings_for_game.received_for_free,
-		}
-		params_hash = hashlib.sha256(json.dumps(params_key, sort_keys=True).encode()).hexdigest()
-
-		db_cursor: Session = SessionLocal()
-		try:
-			row = db_cursor.query(models.ScrapeCursor).filter(models.ScrapeCursor.app_id == game.app_id, models.ScrapeCursor.params_hash == params_hash).first()
-			saved_cursor = row.cursor if row is not None else None
-		finally:
-			db_cursor.close()
-		# count consecutive duplicate/no-save pages seen when starting from newest
+		# Track duplicate/no-save pages when starting from newest
 		consecutive_no_save_pages = 0
 		DUPLICATE_PAGE_LIMIT = 3
-		# when using saved cursor, track attempts (give up after a few)
-		saved_cursor_attempts = 0
-		MAX_SAVED_CURSOR_ATTEMPTS = 10
-		used_saved_cursor = False
 		client = httpx.AsyncClient(timeout=settings.REQUEST_TIMEOUT_SECONDS)
 		try:
-			# Determine resume threshold
+			# Determine resume threshold. Query the latest review that matches the
+			# current filters so we don't prematurely stop when DB contains reviews
+			# that don't meet the current settings (e.g., playtime bounds).
 			db: Session = SessionLocal()
 			try:
-				latest: Optional[datetime] = db.query(func.max(models.Review.review_date)).filter(models.Review.app_id == game.app_id).scalar()
+				q_latest = db.query(func.max(models.Review.review_date)).filter(models.Review.app_id == game.app_id)
+				# apply same filters used below when counting existing matches
+				if settings_for_game.start_date is not None:
+					cs = settings_for_game.start_date.replace(tzinfo=None) if settings_for_game.start_date.tzinfo is not None else settings_for_game.start_date
+					q_latest = q_latest.filter(models.Review.review_date >= cs)
+				end_date_cmp_tmp: Optional[datetime] = settings_for_game.end_date
+				if end_date_cmp_tmp and end_date_cmp_tmp.tzinfo is not None:
+					end_date_cmp_tmp = end_date_cmp_tmp.replace(tzinfo=None)
+				if end_date_cmp_tmp is not None:
+					q_latest = q_latest.filter(models.Review.review_date <= end_date_cmp_tmp)
+				lang_tmp = (settings_for_game.language or "").lower()
+				if lang_tmp:
+					q_latest = q_latest.filter(func.lower(models.Review.language) == lang_tmp)
+				if settings_for_game.early_access == "exclude":
+					q_latest = q_latest.filter(models.Review.early_access == False)
+				if settings_for_game.early_access == "only":
+					q_latest = q_latest.filter(models.Review.early_access == True)
+				if settings_for_game.received_for_free == "exclude":
+					q_latest = q_latest.filter(models.Review.received_for_free == False)
+				if settings_for_game.received_for_free == "only":
+					q_latest = q_latest.filter(models.Review.received_for_free == True)
+				if settings_for_game.min_playtime is not None:
+					q_latest = q_latest.filter(models.Review.playtime_hours >= float(settings_for_game.min_playtime))
+				if settings_for_game.max_playtime is not None:
+					q_latest = q_latest.filter(models.Review.playtime_hours <= float(settings_for_game.max_playtime))
+				latest: Optional[datetime] = q_latest.scalar()
 			finally:
 				db.close()
 
@@ -278,6 +313,13 @@ class ScraperService:
 					q = q.filter(models.Review.received_for_free == False)
 				if settings_for_game.received_for_free == "only":
 					q = q.filter(models.Review.received_for_free == True)
+				# Playtime filters (hours) - ensure existing DB count respects min/max playtime
+				min_pt = settings_for_game.min_playtime
+				max_pt = settings_for_game.max_playtime
+				if min_pt is not None:
+					q = q.filter(models.Review.playtime_hours >= float(min_pt))
+				if max_pt is not None:
+					q = q.filter(models.Review.playtime_hours <= float(max_pt))
 				existing_db_count = int(q.scalar() or 0)
 			finally:
 				db2.close()
@@ -402,29 +444,7 @@ class ScraperService:
 					consecutive_no_save_pages += 1
 				else:
 					consecutive_no_save_pages = 0
-				# Persist cursor for this app+params when we saved new reviews
-				if saved_this_batch > 0:
-					pc = payload.get("cursor")
-					if pc:
-						db_upd: Session = SessionLocal()
-						try:
-							row = db_upd.query(models.ScrapeCursor).filter(models.ScrapeCursor.app_id == game.app_id, models.ScrapeCursor.params_hash == params_hash).first()
-							if row is None:
-								row = models.ScrapeCursor(app_id=game.app_id, params_hash=params_hash, cursor=pc)
-							else:
-								row.cursor = pc
-								row.updated_at = datetime.utcnow()
-							db_upd.add(row)
-							db_upd.commit()
-						finally:
-							db_upd.close()
-				# If we've hit several consecutive duplicate/no-save pages, jump to the saved cursor (if available)
-				if consecutive_no_save_pages >= DUPLICATE_PAGE_LIMIT and saved_cursor and not used_saved_cursor:
-					if cursor != saved_cursor:
-						self.progress.log(f"Detected {consecutive_no_save_pages} duplicate pages; jumping to saved cursor for {game.name}.")
-						cursor = saved_cursor
-						consecutive_no_save_pages = 0
-						used_saved_cursor = True
+				# (cursor persistence removed)
 				self.progress.log(
 					f"Fetched {len(reviews)} reviews (saved {saved_this_batch}) "
 					f"({self.progress.current_game_scraped}/{self.progress.current_game_total} total)"

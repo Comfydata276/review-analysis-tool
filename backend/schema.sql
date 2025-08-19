@@ -3,6 +3,9 @@ PRAGMA foreign_keys = ON;
 PRAGMA journal_mode = WAL;
 PRAGMA synchronous = NORMAL;
 
+-- Ensure legacy cursor table (if present) is removed when initializing a fresh DB
+DROP TABLE IF EXISTS scrape_cursors;
+
 CREATE TABLE IF NOT EXISTS steam_apps (
     app_id INTEGER PRIMARY KEY,
     name TEXT NOT NULL,

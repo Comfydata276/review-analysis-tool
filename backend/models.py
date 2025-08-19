@@ -44,13 +44,3 @@ class Review(Base):
 	game = relationship("Game", back_populates="reviews")
 
 
-class ScrapeCursor(Base):
-    __tablename__ = "scrape_cursors"
-
-    id = Column(Integer, primary_key=True, index=True)
-    app_id = Column(Integer, nullable=False, index=True)
-    params_hash = Column(String, nullable=False, index=True)
-    cursor = Column(String, nullable=True)
-    updated_at = Column(DateTime, default=datetime.utcnow, nullable=True)
-
-

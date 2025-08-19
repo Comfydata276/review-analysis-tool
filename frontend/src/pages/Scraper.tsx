@@ -75,9 +75,76 @@ export const Scraper: React.FC = () => {
 			received_for_free: "include",
 		});
 
+    const DEFAULT_GLOBAL_SETTINGS = {
+        max_reviews: 1000,
+        rate_limit_rpm: 60,
+        complete_scraping: false,
+        language: "english",
+        start_date: undefined,
+        end_date: undefined,
+        early_access: "include",
+        received_for_free: "include",
+    };
+
+
 	const [perGameOverrides, setPerGameOverrides] = useState<
 		Record<number, Partial<ScraperSettings["global_settings"]> & { enabled?: boolean }>
 	>({});
+
+	// Load persisted settings from localStorage on mount
+	useEffect(() => {
+		try {
+			const gRaw = localStorage.getItem("scraper:globalSettings");
+			if (gRaw) {
+				setGlobalSettings(JSON.parse(gRaw));
+			}
+			const pRaw = localStorage.getItem("scraper:perGameOverrides");
+			if (pRaw) {
+				setPerGameOverrides(JSON.parse(pRaw));
+			}
+		} catch (e) {
+			// ignore
+		}
+	}, []);
+
+	// Persist settings when changed
+	useEffect(() => {
+		try {
+			localStorage.setItem("scraper:globalSettings", JSON.stringify(globalSettings));
+		} catch (e) {}
+	}, [globalSettings]);
+
+	useEffect(() => {
+		try {
+			localStorage.setItem("scraper:perGameOverrides", JSON.stringify(perGameOverrides));
+		} catch (e) {}
+	}, [perGameOverrides]);
+
+	const resetSettings = () => {
+		setGlobalSettings({ ...DEFAULT_GLOBAL_SETTINGS });
+		setPerGameOverrides({});
+	};
+
+	// Validation: ensure max_playtime (when set) is strictly greater than min_playtime (when set)
+	const playtimeError: string | undefined = (() => {
+		const min = globalSettings.min_playtime;
+		const max = globalSettings.max_playtime;
+		if (min !== undefined && max !== undefined && max !== "" && max <= min) {
+			return "Max playtime must be greater than Min playtime";
+		}
+		return undefined;
+	})();
+
+	const anyOverridePlaytimeError = useMemo(() => {
+		for (const [_, o] of Object.entries(perGameOverrides || {})) {
+			const ov = o as Partial<ScraperSettings["global_settings"]> & { enabled?: boolean };
+			if (!ov.enabled) continue;
+			const omin = ov.min_playtime;
+			const omax = ov.max_playtime;
+			if (omin !== undefined && omax !== undefined && omax <= omin) return true;
+		}
+		return false;
+	}, [perGameOverrides]);
 
 	// Load active games on mount
 	useEffect(() => {
@@ -114,7 +181,10 @@ export const Scraper: React.FC = () => {
 					if (prevPoint) {
 						const dt = (now - prevPoint.t) / 1000;
 						const ds = scraped - prevPoint.scraped;
-						rpm = dt > 0 ? (ds / dt) * 60 : 0;
+						let raw = dt > 0 ? (ds / dt) * 60 : 0;
+						if (!isFinite(raw) || isNaN(raw)) raw = 0;
+						// RPM cannot be negative - clamp to zero
+						rpm = Math.max(0, raw);
 					}
 					const next = [...prev, { t: now, scraped, rpm }];
 					// keep last ~120 points (~4 minutes @2s polling)
@@ -350,10 +420,11 @@ export const Scraper: React.FC = () => {
 					{/* Control Buttons */}
 					<Button 
 						onClick={handleStart} 
-						disabled={running || activeGames.length === 0} 
+						disabled={running || activeGames.length === 0 || !!playtimeError || anyOverridePlaytimeError} 
 						variant="gradient" 
 						className="inline-flex items-center gap-2" 
 						data-testid="start-scraper"
+						title={playtimeError || (anyOverridePlaytimeError ? "One or more overrides have invalid playtime bounds" : undefined)}
 					>
 						<PlayIcon className="h-4 w-4" />
 						Start Scraping
@@ -470,6 +541,9 @@ export const Scraper: React.FC = () => {
 					</CollapsibleTrigger>
 					<CollapsibleContent>
 						<div className="p-4">
+							<div className="flex justify-end mb-4">
+								<Button variant="outline" onClick={() => resetSettings()} size="sm">Reset to defaults</Button>
+							</div>
 							<Tabs value={settingsTab} onValueChange={setSettingsTab}>
 					<TabsList className="grid w-full grid-cols-2">
 						<TabsTrigger value="global">Global Settings</TabsTrigger>
@@ -505,30 +579,6 @@ export const Scraper: React.FC = () => {
 								data-testid="max-reviews"
 							/>
 								</FormField>
-
-								<FormField label="Min Playtime (hours)" description="Only include reviews with at least this many hours played">
-							<Input
-								type="number"
-								min="0"
-								step="0.1"
-								value={globalSettings.min_playtime ?? ""}
-								onChange={(e) => setGlobalSettings((s) => ({ ...s, min_playtime: e.target.value === "" ? undefined : Number(e.target.value) }))}
-								disabled={running}
-								data-testid="min-playtime"
-							/>
-							</FormField>
-
-						<FormField label="Max Playtime (hours)" description="Only include reviews with no more than this many hours played">
-							<Input
-								type="number"
-								min="0"
-								step="0.1"
-								value={globalSettings.max_playtime ?? ""}
-								onChange={(e) => setGlobalSettings((s) => ({ ...s, max_playtime: e.target.value === "" ? undefined : Number(e.target.value) }))}
-								disabled={running}
-								data-testid="max-playtime"
-							/>
-							</FormField>
 
 								<FormField label="Complete Scraping" description="When enabled, scrape all available reviews and disable Max Reviews per Game">
 									<div>
@@ -571,12 +621,13 @@ export const Scraper: React.FC = () => {
 						</FormSection>
 
 						<FormSection 
-							title="Language & Filtering" 
-							description="Configure language and content filters"
+							title="Filtering"
+							description="Language, date range and content filters"
 						>
+							{/* Row 1: Language, Start Date, End Date */}
 							<FormGrid cols={3}>
 								<FormField label="Language" description="Review language preference">
-						<Select
+									<Select
 										options={[
 											{ label: "English", value: "english" }, 
 											{ label: "Spanish", value: "spanish" }, 
@@ -585,12 +636,61 @@ export const Scraper: React.FC = () => {
 											{ label: "Italian", value: "italian" },
 											{ label: "Japanese", value: "japanese" }
 										]}
-							value={globalSettings.language}
-							onChange={(e) => setGlobalSettings((s) => ({ ...s, language: e.target.value }))}
-							disabled={running}
-							data-testid="language"
-						/>
+										value={globalSettings.language}
+										onChange={(e) => setGlobalSettings((s) => ({ ...s, language: e.target.value }))}
+										disabled={running}
+										data-testid="language"
+									/>
 								</FormField>
+
+								<FormField label="Start Date" description="Only include reviews after this date">
+									<Input
+										type="date"
+										value={globalSettings.start_date || ""}
+										onChange={(e) => setGlobalSettings((s) => ({ ...s, start_date: e.target.value || undefined }))}
+										disabled={running}
+										data-testid="start-date"
+									/>
+								</FormField>
+
+								<FormField label="End Date" description="Only include reviews before this date">
+									<Input
+										type="date"
+										value={globalSettings.end_date || ""}
+										onChange={(e) => setGlobalSettings((s) => ({ ...s, end_date: e.target.value || undefined }))}
+										disabled={running}
+										data-testid="end-date"
+									/>
+								</FormField>
+							</FormGrid>
+
+							{/* Row 2: Min Playtime, Max Playtime, Early Access */}
+							<FormGrid cols={3}>
+								<FormField label="Min Playtime (hours)" description="Only include reviews with at least this many hours played">
+									<Input
+										type="number"
+										min="0"
+										step="0.1"
+										value={globalSettings.min_playtime ?? ""}
+										onChange={(e) => setGlobalSettings((s) => ({ ...s, min_playtime: e.target.value === "" ? undefined : Number(e.target.value) }))}
+										disabled={running}
+										data-testid="min-playtime"
+									/>
+								</FormField>
+
+								<FormField label="Max Playtime (hours)" description="Only include reviews with no more than this many hours played" error={playtimeError}>
+								<Input
+									type="number"
+									min="0"
+									step="0.1"
+									value={globalSettings.max_playtime ?? ""}
+									onChange={(e) => setGlobalSettings((s) => ({ ...s, max_playtime: e.target.value === "" ? undefined : Number(e.target.value) }))}
+									disabled={running}
+									data-testid="max-playtime"
+									error={!!playtimeError}
+									aria-invalid={!!playtimeError}
+								/>
+							</FormField>
 
 								<FormField label="Early Access" description="Include early access games">
 									<Select
@@ -605,7 +705,10 @@ export const Scraper: React.FC = () => {
 										data-testid="early-access"
 									/>
 								</FormField>
+							</FormGrid>
 
+							{/* Row 3: Free Games */}
+							<FormGrid cols={3}>
 								<FormField label="Free Games" description="Include games received for free">
 									<Select
 										options={[
@@ -619,39 +722,9 @@ export const Scraper: React.FC = () => {
 										data-testid="received-for-free"
 									/>
 								</FormField>
-							</FormGrid>
-						</FormSection>
-
-						<FormSection 
-							title="Date Range" 
-							description="Limit reviews to a specific time period (optional)"
-						>
-							<FormGrid cols={2}>
-								<FormField 
-									label="Start Date" 
-									description="Only include reviews after this date"
-								>
-						<Input
-							type="date"
-							value={globalSettings.start_date || ""}
-							onChange={(e) => setGlobalSettings((s) => ({ ...s, start_date: e.target.value || undefined }))}
-							disabled={running}
-							data-testid="start-date"
-						/>
-								</FormField>
-
-								<FormField 
-									label="End Date" 
-									description="Only include reviews before this date"
-								>
-						<Input
-							type="date"
-							value={globalSettings.end_date || ""}
-							onChange={(e) => setGlobalSettings((s) => ({ ...s, end_date: e.target.value || undefined }))}
-							disabled={running}
-							data-testid="end-date"
-						/>
-								</FormField>
+								{/* empty columns to keep layout */}
+								<div />
+								<div />
 							</FormGrid>
 						</FormSection>
 					</TabsContent>
@@ -700,107 +773,175 @@ export const Scraper: React.FC = () => {
 				</div>
 
 								{enabled && (
-												<div className="p-4 space-y-4 bg-muted/50">
-													<FormGrid cols={2}>
-														<FormField label="Max Reviews">
-								<Input
-									type="number"
-									min="1"
-									max="10000"
-									value={override.max_reviews ?? globalSettings.max_reviews ?? ""}
-									onChange={(e) => {
-										const v = e.target.value;
-										if (v === "") {
-											setPerGameOverrides((s) => ({ ...s, [game.app_id]: { ...override, max_reviews: undefined, enabled } }));
-										} else {
-											const cleaned = v.replace(/^0+(\d)/, "$1");
-											setPerGameOverrides((s) => ({ ...s, [game.app_id]: { ...override, max_reviews: Number(cleaned), enabled } }));
-										}
-									}}
-									disabled={running}
-								/>
-														</FormField>
-														
-														<FormField label="Rate Limit (RPM)">
-									<Input
-										type="number"
-										min="1"
-										max="300"
-										value={override.rate_limit_rpm ?? globalSettings.rate_limit_rpm ?? ""}
-										onChange={(e) => {
-											const v = e.target.value;
-											if (v === "") {
-												setPerGameOverrides((s) => ({ ...s, [game.app_id]: { ...override, rate_limit_rpm: undefined, enabled } }));
-											} else {
-												const cleaned = v.replace(/^0+(\d)/, "$1");
-												setPerGameOverrides((s) => ({ ...s, [game.app_id]: { ...override, rate_limit_rpm: Number(cleaned), enabled } }));
-											}
-										}}
-										disabled={running}
-									/>
-														</FormField>
-														
-														<FormField label="Language">
-															<Select 
-																options={[
-																	{ label: "English", value: "english" }, 
-																	{ label: "Spanish", value: "spanish" }, 
-																	{ label: "German", value: "german" },
-																	{ label: "French", value: "french" },
-																	{ label: "Italian", value: "italian" },
-																	{ label: "Japanese", value: "japanese" }
-																]} 
-																value={override.language ?? globalSettings.language} 
-																onChange={(e) => setPerGameOverrides((s) => ({ 
-																	...s, 
-																	[game.app_id]: { ...override, language: e.target.value, enabled } 
-																}))} 
-																disabled={running} 
+									<div className="p-4 space-y-4 bg-muted/50">
+										{/* Basic Settings (per-game) */}
+										<FormGrid cols={3}>
+											<FormField label="Max Reviews per Game" description="Maximum number of reviews to scrape for this game">
+												<Input
+													type="number"
+													min="1"
+													max="10000"
+													value={override.max_reviews ?? globalSettings.max_reviews ?? ""}
+													onChange={(e) => {
+														const v = e.target.value;
+														if (v === "") {
+															setPerGameOverrides((s) => ({ ...s, [game.app_id]: { ...override, max_reviews: undefined, enabled } }));
+														} else {
+															const cleaned = v.replace(/^0+(\d)/, "$1");
+															setPerGameOverrides((s) => ({ ...s, [game.app_id]: { ...override, max_reviews: Number(cleaned), enabled } }));
+														}
+													}}
+													disabled={running}
+												/>
+											</FormField>
+
+											<FormField label="Complete Scraping" description="Scrape all available reviews for this game">
+												<div>
+													<Button
+														variant={override.complete_scraping ? "gradient" : "outline"}
+														size="md"
+														onClick={() => setPerGameOverrides((s) => ({ ...s, [game.app_id]: { ...override, complete_scraping: !override.complete_scraping, enabled } }))}
+														aria-pressed={!!override.complete_scraping}
+														className="w-full h-10"
+													>
+														{override.complete_scraping ? "Disable complete scraping" : "Enable complete scraping"}
+													</Button>
+												</div>
+											</FormField>
+
+											<FormField label="Rate Limit (RPM)" description="Requests per minute to avoid rate limiting">
+												<Input
+													type="number"
+													min="1"
+													max="300"
+													value={override.rate_limit_rpm ?? globalSettings.rate_limit_rpm ?? ""}
+													onChange={(e) => {
+														const v = e.target.value;
+														if (v === "") {
+															setPerGameOverrides((s) => ({ ...s, [game.app_id]: { ...override, rate_limit_rpm: undefined, enabled } }));
+														} else {
+															const cleaned = v.replace(/^0+(\d)/, "$1");
+															setPerGameOverrides((s) => ({ ...s, [game.app_id]: { ...override, rate_limit_rpm: Number(cleaned), enabled } }));
+														}
+													}}
+													disabled={running}
+												/>
+												</FormField>
+											</FormGrid>
+
+											{/* Filtering (per-game) */}
+												<FormGrid cols={3}>
+													<FormField label="Language" description="Review language preference">
+														<Select
+															options={[
+																{ label: "English", value: "english" },
+																{ label: "Spanish", value: "spanish" },
+																{ label: "German", value: "german" },
+																{ label: "French", value: "french" },
+																{ label: "Italian", value: "italian" },
+																{ label: "Japanese", value: "japanese" },
+															]}
+														value={override.language ?? globalSettings.language}
+														onChange={(e) => setPerGameOverrides((s) => ({ ...s, [game.app_id]: { ...override, language: e.target.value, enabled } }))}
+														disabled={running}
+														data-testid={`override-language-${game.app_id}`}
+													/>
+													</FormField>
+
+													<FormField label="Start Date" description="Only include reviews after this date">
+														<Input
+															type="date"
+															value={override.start_date ?? ""}
+															onChange={(e) => setPerGameOverrides((s) => ({ ...s, [game.app_id]: { ...override, start_date: e.target.value || undefined, enabled } }))}
+															disabled={running}
+														data-testid={`override-start-${game.app_id}`}
+													/>
+													</FormField>
+
+													<FormField label="End Date" description="Only include reviews before this date">
+														<Input
+															type="date"
+															value={override.end_date ?? ""}
+															onChange={(e) => setPerGameOverrides((s) => ({ ...s, [game.app_id]: { ...override, end_date: e.target.value || undefined, enabled } }))}
+															disabled={running}
+														data-testid={`override-end-${game.app_id}`}
+													/>
+													</FormField>
+												</FormGrid>
+
+												{/* Row: Min/Max Playtime, Early Access */}
+												<FormGrid cols={3}>
+													<FormField label="Min Playtime (hours)" description="Only include reviews with at least this many hours played">
+														<Input
+															type="number"
+															min="0"
+															step="0.1"
+															value={override.min_playtime ?? globalSettings.min_playtime ?? ""}
+															onChange={(e) => setPerGameOverrides((s) => ({ ...s, [game.app_id]: { ...override, min_playtime: e.target.value === "" ? undefined : Number(e.target.value), enabled } }))}
+															disabled={running}
+															data-testid={`override-min-playtime-${game.app_id}`}
 															/>
-														</FormField>
-														
-														<FormField label="Early Access">
-															<Select 
-																options={[
-																	{ label: "Include", value: "include" }, 
-																	{ label: "Exclude", value: "exclude" }, 
-																	{ label: "Only", value: "only" }
-																]} 
-																value={override.early_access ?? globalSettings.early_access} 
-																onChange={(e) => setPerGameOverrides((s) => ({ 
-																	...s, 
-																	[game.app_id]: { ...override, early_access: e.target.value as any, enabled } 
-																}))} 
-																disabled={running} 
-															/>
-														</FormField>
-														
-														<FormField label="Start Date">
-															<Input 
-																type="date" 
-																value={override.start_date ?? ""} 
-																onChange={(e) => setPerGameOverrides((s) => ({ 
-																	...s, 
-																	[game.app_id]: { ...override, start_date: e.target.value || undefined, enabled } 
-																}))} 
-																disabled={running} 
-															/>
-														</FormField>
-														
-														<FormField label="End Date">
-															<Input 
-																type="date" 
-																value={override.end_date ?? ""} 
-																onChange={(e) => setPerGameOverrides((s) => ({ 
-																	...s, 
-																	[game.app_id]: { ...override, end_date: e.target.value || undefined, enabled } 
-																}))} 
-																disabled={running} 
-															/>
-														</FormField>
-													</FormGrid>
-									</div>
-								)}
+													</FormField>
+
+													{/* per-override playtime validation */}
+													{(() => {
+														const omin = override.min_playtime;
+														const omax = override.max_playtime;
+														const overridePlaytimeError = omin !== undefined && omax !== undefined && omax <= omin ? "Max playtime must be greater than Min playtime" : undefined;
+														return (
+															<>
+																<FormField label="Max Playtime (hours)" description="Only include reviews with no more than this many hours played" error={overridePlaytimeError}>
+																	<Input
+																		type="number"
+																		min="0"
+																		step="0.1"
+																		value={override.max_playtime ?? globalSettings.max_playtime ?? ""}
+																		onChange={(e) => setPerGameOverrides((s) => ({ ...s, [game.app_id]: { ...override, max_playtime: e.target.value === "" ? undefined : Number(e.target.value), enabled } }))}
+																		disabled={running}
+																		data-testid={`override-max-playtime-${game.app_id}`}
+																		error={!!overridePlaytimeError}
+																		aria-invalid={!!overridePlaytimeError}
+																	/>
+																</FormField>
+																<FormField label="Early Access" description="Include early access games">
+																	<Select
+																		options={[
+																			{ label: "Include", value: "include" },
+																			{ label: "Exclude", value: "exclude" },
+																			{ label: "Only", value: "only" },
+																		]}
+																		value={override.early_access ?? globalSettings.early_access}
+																		onChange={(e) => setPerGameOverrides((s) => ({ ...s, [game.app_id]: { ...override, early_access: e.target.value as any, enabled } }))}
+																		disabled={running}
+																		data-testid={`override-early-${game.app_id}`}
+																	/>
+																</FormField>
+																</>
+														);
+													})()}
+												</FormGrid>
+
+												{/* Row: Free Games */}
+												<FormGrid cols={3}>
+													<FormField label="Free Games" description="Include games received for free">
+														<Select
+															options={[
+																{ label: "Include", value: "include" },
+																{ label: "Exclude", value: "exclude" },
+																{ label: "Only", value: "only" },
+																]}
+															value={override.received_for_free ?? globalSettings.received_for_free}
+														onChange={(e) => setPerGameOverrides((s) => ({ ...s, [game.app_id]: { ...override, received_for_free: e.target.value as any, enabled } }))}
+														disabled={running}
+														data-testid={`override-free-${game.app_id}`}
+													/>
+													</FormField>
+													<div />
+													<div />
+												</FormGrid>
+
+												</div>
+										)}
 										</Card>
 						);
 					})}
@@ -808,6 +949,11 @@ export const Scraper: React.FC = () => {
 						)}
 					</TabsContent>
 							</Tabs>
+						</div>
+						<div className="p-4 pt-0">
+							<Button variant="outline" onClick={resetSettings} className="w-full">
+								Reset to Defaults
+							</Button>
 						</div>
 					</CollapsibleContent>
 				</Card>
