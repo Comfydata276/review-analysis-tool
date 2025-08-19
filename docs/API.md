@@ -11,6 +11,8 @@ Base URL (development): `http://127.0.0.1:8000`
  - GET /games/search_local?query=... — Search the local applist (SQLite FTS5). Returns a paginated `GameSearchResponse` with `games`, `total`, `start`, `count`.
  - GET /games/applist — Fetch the full Steam applist from the Steam Web API (useful for backfill/import). Returns simple `GameCreate` objects (app_id, name).
 
+- GET /games/steam_reviews/{app_id} — Query Steam's store API for `app_id` and return Steam's reported total review count. Response: `{ "app_id": 12345, "steam_total_reviews": 98765 }`.
+
 - GET /games/active — List active (tracked) games stored in the DB. Returns `GameRead` objects.
 
 - POST /games/active — Add a game to the tracked list.
@@ -53,6 +55,7 @@ Base URL (development): `http://127.0.0.1:8000`
 - DELETE /reviews/by_game/{app_id}?dry_run=true|false — Delete reviews for `app_id`. If `dry_run` the endpoint returns count without deleting.
 
 - GET /reviews/export/{app_id}?format=csv|xlsx — Export all reviews for `app_id` as a downloadable file. `format` defaults to `csv`. Returns a file attachment.
+ - GET /reviews/count/{app_id} — Return the number of reviews stored in the database for the given `app_id`. Response: `{ "app_id": 12345, "count": 678 }`.
 
 ## Cursors
 

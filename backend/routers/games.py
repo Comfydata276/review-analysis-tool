@@ -137,3 +137,13 @@ def applist_stats():
     return {"count": count, "last_seen": last_seen}
 
 
+@router.get("/steam_reviews/{app_id}")
+async def steam_review_count(app_id: int):
+    """Return Steam-reported total reviews for an app (calls Steam store API)."""
+    try:
+        cnt = await steam_api.get_review_count(app_id)
+        return {"app_id": app_id, "steam_total_reviews": cnt}
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+

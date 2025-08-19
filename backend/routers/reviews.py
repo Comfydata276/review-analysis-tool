@@ -188,4 +188,12 @@ def export_reviews(app_id: int, format: str = Query("csv", regex="^(csv|xlsx)$")
         return StreamingResponse(buf, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={"Content-Disposition": f"attachment; filename=\"{filename}\""})
 
 
+@router.get("/count/{app_id}")
+def count_reviews_for_game(app_id: int, db: Session = Depends(get_db)):
+    """Return the number of reviews stored in the DB for a given app_id."""
+    q = db.query(models.Review).filter(models.Review.app_id == app_id)
+    count = q.with_entities(func.count()).scalar() or 0
+    return {"app_id": app_id, "count": int(count)}
+
+
 

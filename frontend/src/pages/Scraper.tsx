@@ -34,6 +34,7 @@ import {
 	YAxis,
 	Tooltip,
 } from "recharts";
+import { ChevronDownIcon } from "@heroicons/react/24/outline";
 
 function formatETA(sec: number): string {
 	if (!sec || sec <= 0) return "--";
@@ -59,11 +60,14 @@ export const Scraper: React.FC = () => {
 	const [configurationOpen, setConfigurationOpen] = useState(true);
 	const [exportOpen, setExportOpen] = useState(false);
 	const [selectedExportGame, setSelectedExportGame] = useState<number | null>(null);
+	const [reviewsAvailable, setReviewsAvailable] = useState<number | null>(null);
+	const [steamTotalReviews, setSteamTotalReviews] = useState<number | null>(null);
 
 	const [globalSettings, setGlobalSettings] =
-		useState<ScraperSettings["global_settings"]>({
+		useState<any>({
 			max_reviews: 1000,
 			rate_limit_rpm: 60,
+			complete_scraping: false,
 			language: "english",
 			start_date: undefined,
 			end_date: undefined,
@@ -235,6 +239,94 @@ export const Scraper: React.FC = () => {
 		}
 	}, [selectedExportGame, activeGames]);
 
+	// fetch count of reviews available for the selected export game
+	useEffect(() => {
+		let cancelled = false;
+		async function fetchCount() {
+			if (!selectedExportGame) {
+				setReviewsAvailable(null);
+				return;
+			}
+			try {
+				const BACKEND_URL = (import.meta as any).env.VITE_BACKEND_URL || "http://127.0.0.1:8000";
+				const res = await fetch(`${BACKEND_URL}/reviews/count/${selectedExportGame}`);
+				if (!res.ok) {
+					setReviewsAvailable(null);
+					return;
+				}
+				const data = await res.json();
+				if (!cancelled) setReviewsAvailable(Number(data.count || 0));
+			} catch (e) {
+				if (!cancelled) setReviewsAvailable(null);
+			}
+		}
+		fetchCount();
+
+		// also fetch steam-reported total reviews for this app
+		async function fetchSteamTotal() {
+			if (!selectedExportGame) {
+				setSteamTotalReviews(null);
+				return;
+			}
+			try {
+				const BACKEND_URL = (import.meta as any).env.VITE_BACKEND_URL || "http://127.0.0.1:8000";
+				const res = await fetch(`${BACKEND_URL}/games/steam_reviews/${selectedExportGame}`);
+				if (!res.ok) {
+					setSteamTotalReviews(null);
+					return;
+				}
+				const data = await res.json();
+				if (!cancelled) setSteamTotalReviews(Number(data.steam_total_reviews || 0));
+			} catch (e) {
+				if (!cancelled) setSteamTotalReviews(null);
+			}
+		}
+		fetchSteamTotal();
+		return () => { cancelled = true; };
+	}, [selectedExportGame]);
+
+	// When scraping finishes, refresh both the Steam total and local DB count for the selected export game
+	const prevRunningRef = React.useRef<boolean>(running);
+	useEffect(() => {
+		const prev = prevRunningRef.current;
+		if (prev && !running && selectedExportGame) {
+			let cancelled = false;
+			(async () => {
+				try {
+					const BACKEND_URL = (import.meta as any).env.VITE_BACKEND_URL || "http://127.0.0.1:8000";
+					const [steamRes, dbRes] = await Promise.all([
+						fetch(`${BACKEND_URL}/games/steam_reviews/${selectedExportGame}`),
+						fetch(`${BACKEND_URL}/reviews/count/${selectedExportGame}`),
+					]);
+					let steamCount: number | null = null;
+					let dbCount: number | null = null;
+					if (steamRes.ok) {
+						const d = await steamRes.json();
+						steamCount = Number(d.steam_total_reviews || 0);
+						if (!cancelled) setSteamTotalReviews(steamCount);
+					}
+					if (dbRes.ok) {
+						const d2 = await dbRes.json();
+						dbCount = Number(d2.count || 0);
+						if (!cancelled) setReviewsAvailable(dbCount);
+					}
+					if (!cancelled) {
+						const parts: string[] = [];
+						if (steamCount !== null) parts.push(`${steamCount} on Steam`);
+						if (dbCount !== null) parts.push(`${dbCount} in DB`);
+						if (parts.length > 0) toast.success(`Review counts updated: ${parts.join(", ")}`);
+					}
+				} catch (e) {
+					if (!cancelled) toast.error("Failed to refresh review counts");
+				}
+			})();
+			return () => {
+				cancelled = true;
+			};
+		}
+		prevRunningRef.current = running;
+	}, [running, selectedExportGame]);
+
 	return (
 		<div className="space-y-6 p-0" data-testid="scraper-page">
 
@@ -373,6 +465,7 @@ export const Scraper: React.FC = () => {
 								<h3 className="text-lg font-semibold">Configuration</h3>
 								<p className="text-sm text-muted-foreground">Configure scraper settings and per-game overrides</p>
 							</div>
+							<ChevronDownIcon className={cn("h-4 w-4", configurationOpen ? "rotate-180" : "")} />
 						</div>
 					</CollapsibleTrigger>
 					<CollapsibleContent>
@@ -388,26 +481,43 @@ export const Scraper: React.FC = () => {
 							title="Basic Settings" 
 							description="Configure the main scraping parameters"
 						>
-							<FormGrid cols={2}>
+							<FormGrid cols={3}>
 								<FormField 
 									label="Max Reviews per Game" 
 									description="Maximum number of reviews to scrape per game"
 									required
 								>
-						<Input
-							type="number"
-										min="1"
-										max="10000"
-							value={globalSettings.max_reviews}
-							onChange={(e) =>
-								setGlobalSettings((s) => ({
-									...s,
-									max_reviews: Number(e.target.value),
-								}))
-							}
-							disabled={running}
-							data-testid="max-reviews"
-						/>
+							<Input
+								type="number"
+								min="1"
+								max="10000"
+								value={globalSettings.max_reviews ?? ""}
+								onChange={(e) => {
+									const v = e.target.value;
+									if (v === "") {
+										setGlobalSettings((s) => ({ ...s, max_reviews: undefined }));
+									} else {
+										const cleaned = v.replace(/^0+(\d)/, "$1");
+										setGlobalSettings((s) => ({ ...s, max_reviews: Number(cleaned) }));
+									}
+								}}
+								disabled={running || !!globalSettings.complete_scraping}
+								data-testid="max-reviews"
+							/>
+								</FormField>
+
+								<FormField label="Complete Scraping" description="When enabled, scrape all available reviews and disable Max Reviews per Game">
+									<div>
+										<Button
+											variant={globalSettings.complete_scraping ? "gradient" : "outline"}
+											size="md"
+											onClick={() => setGlobalSettings((s) => ({ ...s, complete_scraping: !s.complete_scraping }))}
+											aria-pressed={!!globalSettings.complete_scraping}
+											className="w-full h-10"
+										>
+											{globalSettings.complete_scraping ? "Disable complete scraping" : "Enable complete scraping"}
+										</Button>
+									</div>
 								</FormField>
 
 								<FormField 
@@ -415,20 +525,23 @@ export const Scraper: React.FC = () => {
 									description="Requests per minute to avoid rate limiting"
 									required
 								>
-						<Input
-							type="number"
-										min="1"
-										max="300"
-							value={globalSettings.rate_limit_rpm}
-							onChange={(e) =>
-								setGlobalSettings((s) => ({
-									...s,
-									rate_limit_rpm: Number(e.target.value),
-								}))
-							}
-							disabled={running}
-							data-testid="rate-limit"
-						/>
+							<Input
+								type="number"
+								min="1"
+								max="300"
+								value={globalSettings.rate_limit_rpm ?? ""}
+								onChange={(e) => {
+									const v = e.target.value;
+									if (v === "") {
+										setGlobalSettings((s) => ({ ...s, rate_limit_rpm: undefined }));
+									} else {
+										const cleaned = v.replace(/^0+(\d)/, "$1");
+										setGlobalSettings((s) => ({ ...s, rate_limit_rpm: Number(cleaned) }));
+									}
+								}}
+								disabled={running}
+								data-testid="rate-limit"
+							/>
 								</FormField>
 							</FormGrid>
 						</FormSection>
@@ -566,31 +679,41 @@ export const Scraper: React.FC = () => {
 												<div className="p-4 space-y-4 bg-muted/50">
 													<FormGrid cols={2}>
 														<FormField label="Max Reviews">
-															<Input 
-																type="number" 
-																min="1"
-																max="10000"
-																value={override.max_reviews ?? globalSettings.max_reviews} 
-																onChange={(e) => setPerGameOverrides((s) => ({ 
-																	...s, 
-																	[game.app_id]: { ...override, max_reviews: Number(e.target.value), enabled } 
-																}))} 
-																disabled={running} 
-															/>
+								<Input
+									type="number"
+									min="1"
+									max="10000"
+									value={override.max_reviews ?? globalSettings.max_reviews ?? ""}
+									onChange={(e) => {
+										const v = e.target.value;
+										if (v === "") {
+											setPerGameOverrides((s) => ({ ...s, [game.app_id]: { ...override, max_reviews: undefined, enabled } }));
+										} else {
+											const cleaned = v.replace(/^0+(\d)/, "$1");
+											setPerGameOverrides((s) => ({ ...s, [game.app_id]: { ...override, max_reviews: Number(cleaned), enabled } }));
+										}
+									}}
+									disabled={running}
+								/>
 														</FormField>
 														
 														<FormField label="Rate Limit (RPM)">
-															<Input 
-																type="number" 
-																min="1"
-																max="300"
-																value={override.rate_limit_rpm ?? globalSettings.rate_limit_rpm} 
-																onChange={(e) => setPerGameOverrides((s) => ({ 
-																	...s, 
-																	[game.app_id]: { ...override, rate_limit_rpm: Number(e.target.value), enabled } 
-																}))} 
-																disabled={running} 
-															/>
+									<Input
+										type="number"
+										min="1"
+										max="300"
+										value={override.rate_limit_rpm ?? globalSettings.rate_limit_rpm ?? ""}
+										onChange={(e) => {
+											const v = e.target.value;
+											if (v === "") {
+												setPerGameOverrides((s) => ({ ...s, [game.app_id]: { ...override, rate_limit_rpm: undefined, enabled } }));
+											} else {
+												const cleaned = v.replace(/^0+(\d)/, "$1");
+												setPerGameOverrides((s) => ({ ...s, [game.app_id]: { ...override, rate_limit_rpm: Number(cleaned), enabled } }));
+											}
+										}}
+										disabled={running}
+									/>
 														</FormField>
 														
 														<FormField label="Language">
@@ -675,6 +798,7 @@ export const Scraper: React.FC = () => {
 									<h3 className="text-lg font-semibold">Export & Analysis</h3>
 									<p className="text-sm text-muted-foreground">Export review data and analysis tools</p>
 								</div>
+								<ChevronDownIcon className={cn("h-4 w-4", exportOpen ? "rotate-180" : "")} />
 							</div>
 						</CollapsibleTrigger>
 						<CollapsibleContent>
@@ -694,7 +818,7 @@ export const Scraper: React.FC = () => {
 										]}
 										value={selectedExportGame?.toString() || ""}
 										onChange={(e) => setSelectedExportGame(e.target.value ? Number(e.target.value) : null)}
-										placeholder="Select a game..."
+										placeholder="Select a game to export"
 									/>
 								</FormField>
 
@@ -772,12 +896,12 @@ export const Scraper: React.FC = () => {
 									<div className="mt-6 pt-4 border-t border-border">
 										<div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
 											<div className="text-center">
-												<div className="text-2xl font-bold text-blue-600">{totalScraped}</div>
-												<div className="text-xs text-muted-foreground">Total Reviews Collected</div>
+												<div className="text-2xl font-bold text-blue-600">{reviewsAvailable ?? totalScraped}</div>
+												<div className="text-xs text-muted-foreground">Reviews available to export</div>
 											</div>
 											<div className="text-center">
-												<div className="text-2xl font-bold text-green-600">{Math.round(rpmNow)}</div>
-												<div className="text-xs text-muted-foreground">Current Rate (RPM)</div>
+												<div className="text-2xl font-bold text-green-600">{steamTotalReviews ?? 0}</div>
+												<div className="text-xs text-muted-foreground">Steam total reviews</div>
 											</div>
 											<div className="text-center">
 												<div className="text-2xl font-bold text-purple-600">{activeGames.length}</div>

@@ -122,3 +122,16 @@ body {
     @apply bg-background text-foreground;
   }
 }
+
+/* Hide native number input spinners while preserving keyboard entry */
+/* Chrome, Safari, Edge, Opera */
+input.no-spinner::-webkit-outer-spin-button,
+input.no-spinner::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* Firefox */
+input.no-spinner[type=number] {
+  -moz-appearance: textfield;
+}

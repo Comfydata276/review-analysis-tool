@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useState } from "react";
 import { Game } from "../types";
 import { ConfirmModal } from "./../components/ConfirmModal";
 import { Button } from "./ui/Button";
@@ -38,17 +38,31 @@ export const ActiveList: React.FC<Props> = ({ games, onRemove }) => {
       </div>
 
       {games.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">No active games yet</div>
+        <div className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+          No active games yet
+        </div>
       ) : (
-        <div className="overflow-hidden rounded-lg border border-border bg-card">
-          <table className="min-w-full divide-y divide-border">
+        <div className="overflow-hidden rounded-lg border border-border bg-card p-4">
+          <table className="min-w-full divide-y divide-border border-collapse">
             <thead className="bg-card">
               <tr>
-                <th className="px-3 py-2">
-                  <input type="checkbox" checked={allSelected} onChange={toggleAll} data-testid="select-all" />
+                <th className="pl-4 py-2">
+                  <div className="flex items-center justify-left">
+                    <input
+                      className="h-4 w-4"
+                      type="checkbox"
+                      checked={allSelected}
+                      onChange={toggleAll}
+                      data-testid="select-all"
+                    />
+                  </div>
                 </th>
-                <th className="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">Name</th>
-                <th className="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">AppID</th>
+                <th className="pl-4 py-2 align-middle text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                  Name
+                </th>
+                <th className="pl-4 py-2 align-middle text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                  AppID
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -56,19 +70,30 @@ export const ActiveList: React.FC<Props> = ({ games, onRemove }) => {
                 const checked = selected.includes(g.app_id);
                 return (
                   <tr key={g.app_id} className="hover:bg-card/40">
-                    <td className="px-3 py-2">
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={(e) => {
-                          if (e.target.checked) setSelected((s) => [...s, g.app_id]);
-                          else setSelected((s) => s.filter((id) => id !== g.app_id));
-                        }}
-                        data-testid={`select-${g.app_id}`}
-                      />
+                    <td className="pl-4 py-2">
+                      <div className="flex items-center justify-left">
+                        <input
+                          className="h-4 w-4"
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(e) => {
+                            if (e.target.checked)
+                              setSelected((s) => [...s, g.app_id]);
+                            else
+                              setSelected((s) =>
+                                s.filter((id) => id !== g.app_id)
+                              );
+                          }}
+                          data-testid={`select-${g.app_id}`}
+                        />
+                      </div>
                     </td>
-                    <td className="px-3 py-2 text-sm text-foreground">{g.name}</td>
-                    <td className="px-3 py-2 text-sm text-muted-foreground">{g.app_id}</td>
+                    <td className="pl-4 py-2 align-middle text-sm text-foreground">
+                      {g.name}
+                    </td>
+                    <td className="pl-4 py-2 align-middle text-sm text-muted-foreground">
+                      {g.app_id}
+                    </td>
                   </tr>
                 );
               })}
@@ -80,7 +105,11 @@ export const ActiveList: React.FC<Props> = ({ games, onRemove }) => {
       <ConfirmModal
         open={confirmOpen}
         onClose={() => setConfirmOpen(false)}
-        title={selected.length === 1 ? "Remove 1 game from the active list?" : `Remove ${selected.length} games from the active list?`}
+        title={
+          selected.length === 1
+            ? "Remove 1 game from the active list?"
+            : `Remove ${selected.length} games from the active list?`
+        }
         description="This will stop scraping for these games until you add them back."
         confirmLabel="Remove"
         onConfirm={() => {

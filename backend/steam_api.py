@@ -82,3 +82,23 @@ async def get_app_list() -> List[Dict]:
 		return results
 
 
+async def get_review_count(app_id: int) -> int:
+    """Query Steam store appreviews endpoint and return the total review count reported by Steam.
+
+    Returns an integer (0 if not available).
+    """
+    url = f"https://store.steampowered.com/appreviews/{app_id}"
+    params = {"json": 1, "num_per_page": 1, "filter": "all"}
+    async with httpx.AsyncClient(timeout=settings.REQUEST_TIMEOUT_SECONDS) as client:
+        resp = await client.get(url, params=params)
+        resp.raise_for_status()
+        data = resp.json() or {}
+        qsum = data.get("query_summary") or {}
+        # Steam may return total_reviews or num_reviews depending on payload
+        total = qsum.get("total_reviews") or qsum.get("num_reviews") or 0
+        try:
+            return int(total or 0)
+        except Exception:
+            return 0
+
+

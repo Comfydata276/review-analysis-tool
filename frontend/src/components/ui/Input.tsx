@@ -7,6 +7,9 @@ interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
 
 export const Input = React.forwardRef<HTMLInputElement, InputProps>(
   ({ className, error, ...props }, ref) => {
+    // automatically add a utility class to hide native number spinners when type="number"
+    const extraClass = props.type === "number" ? "no-spinner" : "";
+
     return (
       <input
         ref={ref}
@@ -20,6 +23,7 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
           {
             "border-destructive focus-visible:ring-destructive": error,
           },
+          extraClass,
           className
         )}
         {...props}

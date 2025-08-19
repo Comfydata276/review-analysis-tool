@@ -22,8 +22,8 @@ export const Layout: React.FC<Props> = ({ children }) => {
       {/* Main Content */}
       <main className="flex-1 flex flex-col overflow-hidden">
         {/* Top bar */}
-        <header className="sticky top-0 z-10 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-          <div className="flex h-16 items-center justify-between px-6">
+        <header className="sticky top-0 z-10 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 h-16 flex items-center">
+          <div className="flex items-center justify-between w-full px-6">
             <div className="flex items-center gap-4">
               <SidebarTrigger />
               <div className="hidden text-sm text-muted-foreground sm:block">
