@@ -35,6 +35,12 @@ const navigationItems = [
     icon: BeakerIcon,
     description: "Monitor and control review scraping",
   },
+  {
+    title: "Analysis",
+    url: "/analysis",
+    icon: ChartBarIcon,
+    description: "Analyze stored reviews",
+  },
 ];
 
 const toolItems = [

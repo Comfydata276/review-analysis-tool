@@ -1,0 +1,33 @@
+export interface AnalysisSettings {
+  global_settings: {
+    max_reviews?: number;
+    complete_scraping?: boolean;
+    simultaneous_batching?: number;
+    language?: string;
+    start_date?: string;
+    end_date?: string;
+    early_access?: "include" | "exclude" | "only";
+    received_for_free?: "include" | "exclude" | "only";
+    min_playtime?: number;
+    max_playtime?: number;
+  };
+  per_game_overrides?: { [appId: number]: Partial<AnalysisSettings["global_settings"]> };
+}
+
+export interface AnalysisPreviewResponse {
+  total_reviews: number;
+  sample_reviews: Array<{ review_id: string; app_id: number; review_text: string }>;
+}
+
+export async function previewAnalysis(settings: AnalysisSettings): Promise<AnalysisPreviewResponse> {
+  const BACKEND_URL = (import.meta as any).env.VITE_BACKEND_URL || "http://127.0.0.1:8000";
+  const resp = await fetch(`${BACKEND_URL}/analysis/preview`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(settings),
+  });
+  if (!resp.ok) throw new Error(await resp.text());
+  return resp.json();
+}
+
+

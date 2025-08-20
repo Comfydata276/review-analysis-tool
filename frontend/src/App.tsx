@@ -5,6 +5,7 @@ import { Layout } from "./components/Layout";
 import { ThemeProvider } from "./context/ThemeProvider";
 
 const Scraper = lazy(() => import("./pages/Scraper").then((m) => ({ default: m.Scraper })));
+const Analysis = lazy(() => import("./pages/Analysis").then((m) => ({ default: m.Analysis })));
 
 export default function App() {
 	return (
@@ -19,6 +20,14 @@ export default function App() {
 							element={
 								<Suspense fallback={<div className="p-8 text-center">Loading Scraper...</div>}>
 									<Scraper />
+								</Suspense>
+							}
+						/>
+						<Route
+							path="/analysis"
+							element={
+								<Suspense fallback={<div className="p-8 text-center">Loading Analysis...</div>}>
+									<Analysis />
 								</Suspense>
 							}
 						/>

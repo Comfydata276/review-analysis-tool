@@ -26,5 +26,7 @@ x Rearrange Scraping UI. Change Language & filter + datetime to be just Filterin
 x Max playtime can never be less than or equal to min playtime. 
 x Throughput graph should NEVER be negative. 
 - Analysis page should mimick all of the settings on the scraper page, complete scraping becomes complete analysis, rate limit become simultaneous batching setting (how many batches to send to the server at once)
+- Change the scraper gradient to be green, analysis gradient to be purple and site wide gradient to be orange 
+- Move analysis buttons from widget to be in the header
+- Remove old buttons 
 - 
-

@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .routers import games, scraper, reviews
+from .routers import games, scraper, reviews, analysis
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 
@@ -64,6 +64,7 @@ def create_app() -> FastAPI:
 	app.include_router(games.router)
 	app.include_router(scraper.router)
 	app.include_router(reviews.router)
+	app.include_router(analysis.router)
 	# settings router (for persisting client settings)
 	from .routers import settings as settings_router
 	app.include_router(settings_router.router)

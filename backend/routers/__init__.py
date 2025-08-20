@@ -1,4 +1,4 @@
-from . import games, scraper, reviews, settings
+from . import games, scraper, reviews, settings, analysis
 
 
 
