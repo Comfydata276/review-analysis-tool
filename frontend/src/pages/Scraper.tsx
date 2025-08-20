@@ -10,8 +10,11 @@ import {
 	startScraper,
 	stopScraper,
 	getScraperStatus,
+	saveScraperSettings,
+	deleteScraperSettings,
 	ScraperSettings,
 	ScraperStatus,
+	getScraperSettings,
 } from "../api/scraper";
 import { Game } from "../types";
 import { Card } from "../components/ui/Card";
@@ -91,20 +94,68 @@ export const Scraper: React.FC = () => {
 		Record<number, Partial<ScraperSettings["global_settings"]> & { enabled?: boolean }>
 	>({});
 
-	// Load persisted settings from localStorage on mount
+	// used to skip autosave while initial settings are loading
+	const skipSaveRef = useRef(true);
+
+	// Load persisted settings from server (preferred) then localStorage fallback
 	useEffect(() => {
-		try {
-			const gRaw = localStorage.getItem("scraper:globalSettings");
-			if (gRaw) {
-				setGlobalSettings(JSON.parse(gRaw));
+		let cancelled = false;
+
+		async function loadSettings() {
+			// try server first
+			try {
+				const srv = await getScraperSettings();
+				if (!cancelled && srv && typeof srv === "object" && Object.keys(srv).length > 0) {
+					if (srv.global_settings) setGlobalSettings(srv.global_settings);
+					if (srv.per_game_overrides) setPerGameOverrides(srv.per_game_overrides);
+					// UI state
+					if (srv.ui) {
+						if (srv.ui.settingsTab) setSettingsTab(srv.ui.settingsTab);
+						if (typeof srv.ui.configurationOpen === "boolean") setConfigurationOpen(srv.ui.configurationOpen);
+						if (typeof srv.ui.exportOpen === "boolean") setExportOpen(srv.ui.exportOpen);
+						if (srv.ui.selectedExportGame) setSelectedExportGame(Number(srv.ui.selectedExportGame));
+					}
+					skipSaveRef.current = false; // Allow autosave after loading
+					return;
+				}
+			} catch (e) {
+				// server failed, fall back to localStorage
 			}
-			const pRaw = localStorage.getItem("scraper:perGameOverrides");
-			if (pRaw) {
-				setPerGameOverrides(JSON.parse(pRaw));
+
+			// localStorage fallback
+			try {
+				const gRaw = localStorage.getItem("scraper:globalSettings");
+				if (gRaw) {
+					setGlobalSettings(JSON.parse(gRaw));
+				}
+				const pRaw = localStorage.getItem("scraper:perGameOverrides");
+				if (pRaw) {
+					setPerGameOverrides(JSON.parse(pRaw));
+				}
+
+				// UI state
+				const tab = localStorage.getItem("scraper:settingsTab");
+				if (tab) setSettingsTab(tab);
+				const cfg = localStorage.getItem("scraper:configurationOpen");
+				if (cfg !== null) setConfigurationOpen(cfg === "true");
+				const exp = localStorage.getItem("scraper:exportOpen");
+				if (exp !== null) setExportOpen(exp === "true");
+				const sel = localStorage.getItem("scraper:selectedExportGame");
+				if (sel) {
+					const n = Number(sel);
+					if (!isNaN(n)) setSelectedExportGame(n);
+				}
+				skipSaveRef.current = false; // Allow autosave after loading
+			} catch (e) {
+				// ignore
 			}
-		} catch (e) {
-			// ignore
 		}
+
+		loadSettings();
+
+		return () => {
+			cancelled = true;
+		};
 	}, []);
 
 	// Persist settings when changed
@@ -120,9 +171,102 @@ export const Scraper: React.FC = () => {
 		} catch (e) {}
 	}, [perGameOverrides]);
 
+	// Persist UI state
+	useEffect(() => {
+		try {
+			localStorage.setItem("scraper:settingsTab", settingsTab);
+		} catch (e) {}
+	}, [settingsTab]);
+
+	useEffect(() => {
+		try {
+			localStorage.setItem("scraper:configurationOpen", configurationOpen ? "true" : "false");
+		} catch (e) {}
+	}, [configurationOpen]);
+
+	useEffect(() => {
+		try {
+			localStorage.setItem("scraper:exportOpen", exportOpen ? "true" : "false");
+		} catch (e) {}
+	}, [exportOpen]);
+
+	useEffect(() => {
+		try {
+			if (selectedExportGame === null) {
+				localStorage.removeItem("scraper:selectedExportGame");
+			} else {
+				localStorage.setItem("scraper:selectedExportGame", String(selectedExportGame));
+			}
+		} catch (e) {}
+	}, [selectedExportGame]);
+
+	// Debounced autosave to server (also keeps localStorage via existing effects)
+	const saveTimerRef = useRef<number | null>(null);
+	useEffect(() => {
+		// skip autosave during initial load
+		if (skipSaveRef.current) return;
+
+		if (saveTimerRef.current) {
+			window.clearTimeout(saveTimerRef.current);
+		}
+
+		saveTimerRef.current = window.setTimeout(async () => {
+			const payload = {
+				global_settings: globalSettings,
+				per_game_overrides: perGameOverrides,
+				ui: {
+					settingsTab,
+					configurationOpen,
+					exportOpen,
+					selectedExportGame,
+				},
+			};
+			try {
+				await saveScraperSettings(payload);
+				// subtle success feedback
+				// toast.success("Settings saved");
+			} catch (e: any) {
+				console.error("Failed to save settings", e);
+				toast.error("Failed to save settings to server");
+			}
+		}, 1000);
+
+		return () => {
+			if (saveTimerRef.current) {
+				window.clearTimeout(saveTimerRef.current);
+				saveTimerRef.current = null;
+			}
+		};
+	}, [globalSettings, perGameOverrides, settingsTab, configurationOpen, exportOpen, selectedExportGame]);
+
 	const resetSettings = () => {
 		setGlobalSettings({ ...DEFAULT_GLOBAL_SETTINGS });
 		setPerGameOverrides({});
+		// reset UI state as well
+		setSettingsTab("global");
+		setConfigurationOpen(true);
+		setExportOpen(false);
+		setSelectedExportGame(null);
+		try {
+			localStorage.removeItem("scraper:globalSettings");
+			localStorage.removeItem("scraper:perGameOverrides");
+			localStorage.removeItem("scraper:settingsTab");
+			localStorage.removeItem("scraper:configurationOpen");
+			localStorage.removeItem("scraper:exportOpen");
+			localStorage.removeItem("scraper:selectedExportGame");
+		} catch (e) {
+			// ignore
+		}
+
+		// also clear server settings
+		(async () => {
+			try {
+				await deleteScraperSettings();
+				toast.success("Server settings cleared");
+			} catch (e) {
+				// non-fatal
+			}
+		})();
 	};
 
 	// Validation: ensure max_playtime (when set) is strictly greater than min_playtime (when set)
@@ -950,14 +1094,10 @@ export const Scraper: React.FC = () => {
 					</TabsContent>
 							</Tabs>
 						</div>
-						<div className="p-4 pt-0">
-							<Button variant="outline" onClick={resetSettings} className="w-full">
-								Reset to Defaults
-							</Button>
-						</div>
-					</CollapsibleContent>
-				</Card>
-			</Collapsible>
+
+			</CollapsibleContent>
+		</Card>
+	</Collapsible>
 			{/* Desktop Features Section */}
 			{activeGames.length > 0 && (
 				<Collapsible open={exportOpen} onOpenChange={setExportOpen}>

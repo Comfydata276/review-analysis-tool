@@ -21,8 +21,10 @@ x Change 'Read to Start' widget to match dark mode / light mode themes on the sc
 x Remove redundant text from Select Game To Export box - Make default a string about selecting a game and remove 'select a game' form the dropdown box.
 x Add complete scraping mode 
 x Add in ability to filter by min / max playtime, this should use playtime at time of review, not overall playtime. 
-- Make setting persistant
+x Make setting persistant
 x Rearrange Scraping UI. Change Language & filter + datetime to be just Filtering and range appropriately. 
 x Max playtime can never be less than or equal to min playtime. 
-- Throughput graph should NEVER be negative. 
+x Throughput graph should NEVER be negative. 
+- Analysis page should mimick all of the settings on the scraper page, complete scraping becomes complete analysis, rate limit become simultaneous batching setting (how many batches to send to the server at once)
+- 
 

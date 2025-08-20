@@ -52,3 +52,35 @@ def search_games_local(db: Session, query: str) -> List[models.Game]:
 	)
 
 
+# Settings CRUD (simple key/value store)
+def get_setting(db: Session, key: str) -> Optional[models.Setting]:
+	return db.query(models.Setting).filter(models.Setting.key == key).first()
+
+
+def upsert_setting(db: Session, key: str, value: str) -> models.Setting:
+	s = get_setting(db, key)
+	if s:
+		s.value = value
+		# use DB func.now() for updated_at
+		s.updated_at = func.now()
+		db.add(s)
+		db.commit()
+		db.refresh(s)
+		return s
+	# create new
+	s2 = models.Setting(key=key, value=value)
+	db.add(s2)
+	db.commit()
+	db.refresh(s2)
+	return s2
+
+
+def delete_setting(db: Session, key: str) -> bool:
+	s = get_setting(db, key)
+	if not s:
+		return False
+	db.delete(s)
+	db.commit()
+	return True
+
+

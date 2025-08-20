@@ -52,4 +52,27 @@ export async function getScraperStatus(): Promise<ScraperStatus> {
 	return handle<ScraperStatus>(resp);
 }
 
+export async function getScraperSettings(): Promise<any> {
+    const resp = await fetch(`${BASE_URL}/settings/scraper`);
+    if (!resp.ok) {
+        // return empty if not available
+        return {};
+    }
+    return resp.json();
+}
+
+export async function saveScraperSettings(payload: any): Promise<void> {
+    const resp = await fetch(`${BASE_URL}/settings/scraper`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+    });
+    if (!resp.ok) throw new Error(await resp.text());
+}
+
+export async function deleteScraperSettings(): Promise<void> {
+    const resp = await fetch(`${BASE_URL}/settings/scraper`, { method: "DELETE" });
+    if (!resp.ok) throw new Error(await resp.text());
+}
+
 

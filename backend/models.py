@@ -44,3 +44,10 @@ class Review(Base):
 	game = relationship("Game", back_populates="reviews")
 
 
+
+class Setting(Base):
+    __tablename__ = "settings"
+
+    key = Column(String, primary_key=True, index=True)
+    value = Column(Text, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)

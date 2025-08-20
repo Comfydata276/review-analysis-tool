@@ -64,6 +64,9 @@ def create_app() -> FastAPI:
 	app.include_router(games.router)
 	app.include_router(scraper.router)
 	app.include_router(reviews.router)
+	# settings router (for persisting client settings)
+	from .routers import settings as settings_router
+	app.include_router(settings_router.router)
 
 	# Optionally serve built frontend static files (if present). Frontend build
 	# should be placed at ../frontend/dist relative to the backend package, or the
