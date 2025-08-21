@@ -6,7 +6,7 @@ import React, {
 	useState,
 } from "react";
 import { getActiveGames, searchGames } from "../api/games";
-import { previewAnalysis } from "../api/analysis";
+import { previewAnalysis, getAnalysisSettings, saveAnalysisSettings, deleteAnalysisSettings } from "../api/analysis";
 import {
 	startScraper,
 }
@@ -137,8 +137,179 @@ export const Analysis: React.FC = () => {
  	const [perGameOverrides, setPerGameOverrides] = useState<
  		Record<number, Partial<any> & { enabled?: boolean }>
  	>({});
-
+ 
+ 	// used to skip autosave while initial settings are loading
  	const skipSaveRef = useRef(true);
+ 	const saveTimerRef = useRef<number | null>(null);
+ 
+ 	// Load persisted settings from server (preferred) then localStorage fallback
+ 	useEffect(() => {
+ 		let cancelled = false;
+
+ 		async function loadSettings() {
+ 			// try server first
+ 			try {
+ 				const srv = await getAnalysisSettings();
+ 				if (!cancelled && srv && typeof srv === "object" && Object.keys(srv).length > 0) {
+ 					if (srv.global_settings) setGlobalSettings(srv.global_settings);
+ 					if (srv.per_game_overrides) setPerGameOverrides(srv.per_game_overrides);
+ 					// UI state
+ 					if (srv.ui) {
+ 						if (srv.ui.settingsTab) setSettingsTab(srv.ui.settingsTab);
+ 						if (typeof srv.ui.configurationOpen === "boolean") setConfigurationOpen(srv.ui.configurationOpen);
+ 						if (typeof srv.ui.exportOpen === "boolean") setExportOpen(srv.ui.exportOpen);
+ 						if (srv.ui.selectedExportGame) setSelectedExportGame(Number(srv.ui.selectedExportGame));
+ 					}
+ 					skipSaveRef.current = false; // Allow autosave after loading
+ 					return;
+ 				}
+ 			} catch (e) {
+ 				// server failed, fall back to localStorage
+ 			}
+
+ 			// localStorage fallback
+ 			try {
+ 				const gRaw = localStorage.getItem("analysis:globalSettings");
+ 				if (gRaw) {
+ 					setGlobalSettings(JSON.parse(gRaw));
+ 				}
+ 				const pRaw = localStorage.getItem("analysis:perGameOverrides");
+ 				if (pRaw) {
+ 					setPerGameOverrides(JSON.parse(pRaw));
+ 				}
+
+ 				// UI state
+ 				const tab = localStorage.getItem("analysis:settingsTab");
+ 				if (tab) setSettingsTab(tab);
+ 				const cfg = localStorage.getItem("analysis:configurationOpen");
+ 				if (cfg !== null) setConfigurationOpen(cfg === "true");
+ 				const exp = localStorage.getItem("analysis:exportOpen");
+ 				if (exp !== null) setExportOpen(exp === "true");
+ 				const sel = localStorage.getItem("analysis:selectedExportGame");
+ 				if (sel) {
+ 					const n = Number(sel);
+ 					if (!isNaN(n)) setSelectedExportGame(n);
+ 				}
+ 				skipSaveRef.current = false; // Allow autosave after loading
+ 			} catch (e) {
+ 				// ignore
+ 			}
+ 		}
+
+ 		loadSettings();
+
+ 		return () => {
+ 			cancelled = true;
+ 		};
+ 	}, []);
+
+ 	// Persist settings when changed
+ 	useEffect(() => {
+ 		try {
+ 			localStorage.setItem("analysis:globalSettings", JSON.stringify(globalSettings));
+ 		} catch (e) {}
+ 	}, [globalSettings]);
+
+ 	useEffect(() => {
+ 		try {
+ 			localStorage.setItem("analysis:perGameOverrides", JSON.stringify(perGameOverrides));
+ 		} catch (e) {}
+ 	}, [perGameOverrides]);
+
+ 	// Persist UI state
+ 	useEffect(() => {
+ 		try {
+ 			localStorage.setItem("analysis:settingsTab", settingsTab);
+ 		} catch (e) {}
+ 	}, [settingsTab]);
+
+ 	useEffect(() => {
+ 		try {
+ 			localStorage.setItem("analysis:configurationOpen", configurationOpen ? "true" : "false");
+ 		} catch (e) {}
+ 	}, [configurationOpen]);
+
+ 	useEffect(() => {
+ 		try {
+ 			localStorage.setItem("analysis:exportOpen", exportOpen ? "true" : "false");
+ 		} catch (e) {}
+ 	}, [exportOpen]);
+
+ 	useEffect(() => {
+ 		try {
+ 			if (selectedExportGame === null) {
+ 				localStorage.removeItem("analysis:selectedExportGame");
+ 			} else {
+ 				localStorage.setItem("analysis:selectedExportGame", String(selectedExportGame));
+ 			}
+ 		} catch (e) {}
+ 	}, [selectedExportGame]);
+
+ 	// Debounced autosave to server (also keeps localStorage via existing effects)
+ 	useEffect(() => {
+ 		// skip autosave during initial load
+ 		if (skipSaveRef.current) return;
+
+ 		if (saveTimerRef.current) {
+ 			window.clearTimeout(saveTimerRef.current);
+ 		}
+
+ 		saveTimerRef.current = window.setTimeout(async () => {
+ 			const payload = {
+ 				global_settings: globalSettings,
+ 				per_game_overrides: perGameOverrides,
+ 				ui: {
+ 					settingsTab,
+ 					configurationOpen,
+ 					exportOpen,
+ 					selectedExportGame,
+ 				},
+ 			};
+ 			try {
+ 				await saveAnalysisSettings(payload);
+ 			} catch (e: any) {
+ 				console.error("Failed to save analysis settings", e);
+ 				toast.error("Failed to save settings to server");
+ 			}
+ 		}, 1000);
+
+ 		return () => {
+ 			if (saveTimerRef.current) {
+ 				window.clearTimeout(saveTimerRef.current);
+ 				saveTimerRef.current = null;
+ 			}
+ 		};
+ 	}, [globalSettings, perGameOverrides, settingsTab, configurationOpen, exportOpen, selectedExportGame]);
+
+ 	const resetSettings = () => {
+ 		setGlobalSettings({ ...DEFAULT_GLOBAL_SETTINGS });
+ 		setPerGameOverrides({});
+ 		// reset UI state as well
+ 		setSettingsTab("global");
+ 		setConfigurationOpen(true);
+ 		setExportOpen(false);
+ 		setSelectedExportGame(null);
+ 		try {
+ 			localStorage.removeItem("analysis:globalSettings");
+ 			localStorage.removeItem("analysis:perGameOverrides");
+ 			localStorage.removeItem("analysis:settingsTab");
+ 			localStorage.removeItem("analysis:configurationOpen");
+ 			localStorage.removeItem("analysis:exportOpen");
+ 			localStorage.removeItem("analysis:selectedExportGame");
+ 		} catch (e) {
+ 			// ignore
+ 		}
+
+ 		// also clear server settings
+ 		(async () => {
+ 			try {
+ 				await deleteAnalysisSettings();
+ 				toast.success("Server settings cleared");
+ 			} catch (e) {
+ 				// non-fatal
+ 			}
+ 		})();
+ 	};
 
  	useEffect(() => {
  		getActiveGames()
@@ -360,7 +531,7 @@ export const Analysis: React.FC = () => {
  					<Button 
  						variant="gradient"
  						onClick={() => { /* Placeholder for analysis start */ }}
- 						disabled={false}
+ 						disabled={!selectedGame}
  						className="inline-flex items-center gap-2" 
  					>
  						<PlayIcon className="h-4 w-4" />
@@ -370,6 +541,7 @@ export const Analysis: React.FC = () => {
  					<Button 
  						variant="destructive" 
  						className="inline-flex items-center gap-2" 
+ 						disabled={!running}
  					>
  						<StopIcon className="h-4 w-4" />
  						Stop
@@ -461,7 +633,7 @@ export const Analysis: React.FC = () => {
  								>
  									{/* Game picker on its own row */}
 						<div className="mb-6">
-							<FormField label="Game" description="Select a game to analyse (type to search AppID or name)">
+							<FormField label="Game" description="Select a game to analyse (type to search AppID or name)" required>
 								<div className="relative max-w-md">
 									<Input
 										value={gameQuery}
@@ -496,6 +668,7 @@ export const Analysis: React.FC = () => {
 									}
 								}}
 								data-testid="max-reviews"
+								disabled={!!globalSettings.complete_scraping}
 								/>
 							</FormField>
 
@@ -649,7 +822,7 @@ export const Analysis: React.FC = () => {
  							<div className="flex items-center justify-between border-b border-border p-4 cursor-pointer hover:bg-muted/50 transition-colors">
  								<div>
  									<h3 className="text-lg font-semibold">Export & Analysis</h3>
- 									<p className="text-sm text-muted-foreground">Export review data and analysis tools</p>
+ 									<p className="text-sm text-muted-foreground">Export analysed review data and analysis tools</p>
  								</div>
  								<ChevronDownIcon className={cn("h-4 w-4", exportOpen ? "rotate-180" : "")} />
  							</div>

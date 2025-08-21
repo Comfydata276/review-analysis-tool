@@ -30,4 +30,27 @@ export async function previewAnalysis(settings: AnalysisSettings): Promise<Analy
   return resp.json();
 }
 
+export async function getAnalysisSettings(): Promise<any> {
+  const BACKEND_URL = (import.meta as any).env.VITE_BACKEND_URL || "http://127.0.0.1:8000";
+  const resp = await fetch(`${BACKEND_URL}/settings/analysis`);
+  if (!resp.ok) return {};
+  return resp.json();
+}
+
+export async function saveAnalysisSettings(payload: any): Promise<void> {
+  const BACKEND_URL = (import.meta as any).env.VITE_BACKEND_URL || "http://127.0.0.1:8000";
+  const resp = await fetch(`${BACKEND_URL}/settings/analysis`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!resp.ok) throw new Error(await resp.text());
+}
+
+export async function deleteAnalysisSettings(): Promise<void> {
+  const BACKEND_URL = (import.meta as any).env.VITE_BACKEND_URL || "http://127.0.0.1:8000";
+  const resp = await fetch(`${BACKEND_URL}/settings/analysis`, { method: "DELETE" });
+  if (!resp.ok) throw new Error(await resp.text());
+}
+
 

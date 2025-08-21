@@ -353,10 +353,6 @@ export const Scraper: React.FC = () => {
 	}, [running]);
 
 	const logsEndRef = useRef<HTMLDivElement | null>(null);
-	// Removed auto-scroll to logs - user doesn't want this behavior
-	// useEffect(() => {
-	// 	logsEndRef.current?.scrollIntoView({ behavior: "smooth" });
-	// }, [status?.logs?.length]);
 
 	const handleStart = useCallback(async () => {
 		try {

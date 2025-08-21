@@ -40,3 +40,33 @@ def delete_scraper_settings(db: Session = Depends(get_db)) -> Any:
     return {"ok": ok}
 
 
+@router.get("/analysis")
+def get_analysis_settings(db: Session = Depends(get_db)) -> Any:
+    s = crud.get_setting(db, "analysis:settings")
+    if not s:
+        return {}
+    try:
+        import json
+
+        return json.loads(s.value)
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to parse settings")
+
+
+@router.post("/analysis")
+def post_analysis_settings(payload: Any = Body(...), db: Session = Depends(get_db)) -> Any:
+    try:
+        import json
+
+        raw = json.dumps(payload)
+        s = crud.upsert_setting(db, "analysis:settings", raw)
+        return {"ok": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/analysis")
+def delete_analysis_settings(db: Session = Depends(get_db)) -> Any:
+    ok = crud.delete_setting(db, "analysis:settings")
+    return {"ok": ok}
+
