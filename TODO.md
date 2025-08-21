@@ -29,4 +29,3 @@ x Throughput graph should NEVER be negative.
 - Change the scraper gradient to be green, analysis gradient to be purple and site wide gradient to be orange 
 - Move analysis buttons from widget to be in the header
 - Remove old buttons 
-- 

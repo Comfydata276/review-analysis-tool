@@ -42,6 +42,8 @@ interface FormSectionProps {
   description?: string;
   children: React.ReactNode;
   className?: string;
+  /** Optional actions node rendered to the right of the title */
+  actions?: React.ReactNode;
 }
 
 export function FormSection({
@@ -49,14 +51,18 @@ export function FormSection({
   description,
   children,
   className,
+  actions,
 }: FormSectionProps) {
   return (
     <div className={cn("space-y-6", className)}>
-      <div className="space-y-1">
-        <h3 className="text-lg font-semibold">{title}</h3>
-        {description && (
-          <p className="text-sm text-muted-foreground">{description}</p>
-        )}
+      <div className="flex items-start justify-between">
+        <div className="space-y-1">
+          <h3 className="text-lg font-semibold">{title}</h3>
+          {description && (
+            <p className="text-sm text-muted-foreground">{description}</p>
+          )}
+        </div>
+        {actions && <div className="ml-4">{actions}</div>}
       </div>
       <div className="space-y-4">{children}</div>
     </div>
