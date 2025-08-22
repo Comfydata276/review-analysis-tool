@@ -17,6 +17,9 @@ class Settings:
 	# App behavior
 	REQUEST_TIMEOUT_SECONDS: int = int(os.getenv("REQUEST_TIMEOUT_SECONDS", "20"))
 
+	# Prompts storage directory (not hard-coded; can be overridden via env)
+	PROMPTS_DIR: str = os.getenv("PROMPTS_DIR", "./prompts")
+
 
 settings = Settings()
 

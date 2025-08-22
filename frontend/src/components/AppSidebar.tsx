@@ -1,5 +1,5 @@
 import React from "react";
-import { NavLink } from "react-router-dom";
+import { useLocation } from "react-router-dom";
 import { cn } from "../lib/utils";
 import {
   Sidebar,
@@ -14,6 +14,7 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "./ui/Sidebar";
+import { useUnsavedChanges } from "../context/UnsavedChangesContext";
 import {
   Squares2X2Icon,
   BeakerIcon,
@@ -40,6 +41,12 @@ const navigationItems = [
     url: "/analysis",
     icon: ChartBarIcon,
     description: "Analyze stored reviews",
+  },
+  {
+    title: "Prompts",
+    url: "/prompts",
+    icon: DocumentTextIcon,
+    description: "Manage LLM prompt files",
   },
 ];
 
@@ -69,6 +76,8 @@ const toolItems = [
 
 export function AppSidebar() {
   const { state } = useSidebar();
+  const { requestNavigation } = useUnsavedChanges();
+  const location = useLocation();
 
   const isCollapsed = state === "collapsed";
 
@@ -95,31 +104,32 @@ export function AppSidebar() {
           <SidebarGroupLabel>Navigation</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {navigationItems.map((item) => (
-                <SidebarMenuItem key={item.url}>
-                  <NavLink
-                    to={item.url}
-                    className={({ isActive }) =>
-                      cn(
+              {navigationItems.map((item) => {
+                const isActive = location.pathname === item.url;
+                return (
+                  <SidebarMenuItem key={item.url}>
+                    <SidebarMenuButton
+                      onClick={() => requestNavigation(item.url)}
+                      className={cn(
                         "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
                         "hover:bg-accent hover:text-accent-foreground",
                         "focus-visible:outline-none",
                         isActive
                           ? "bg-gradient-to-r from-sky-500 to-indigo-500 text-white shadow-sm"
                           : "text-muted-foreground"
-                      )
-                    }
-                  >
-                    <item.icon className="h-5 w-5" />
-                    {!isCollapsed && (
-                      <div className="flex flex-col">
-                        <span className="font-medium">{item.title}</span>
-                        <span className="text-xs opacity-70">{item.description}</span>
-                      </div>
-                    )}
-                  </NavLink>
-                </SidebarMenuItem>
-              ))}
+                      )}
+                    >
+                      <item.icon className="h-5 w-5" />
+                      {!isCollapsed && (
+                        <div className="flex flex-col">
+                          <span className="font-medium">{item.title}</span>
+                          <span className="text-xs opacity-70">{item.description}</span>
+                        </div>
+                      )}
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                );
+              })}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>

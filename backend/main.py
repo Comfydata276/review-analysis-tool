@@ -69,6 +69,27 @@ def create_app() -> FastAPI:
 	from .routers import settings as settings_router
 	app.include_router(settings_router.router)
 
+	# prompts router for managing LLM prompt files
+	from .routers import prompts as prompts_router
+	app.include_router(prompts_router.router)
+
+	# Copy default prompt files into PROMPTS_DIR on startup if missing
+	try:
+		from shutil import copyfile
+		from . import prompts as prompts_package
+		pdir = Path(settings.PROMPTS_DIR)
+		pdir.mkdir(parents=True, exist_ok=True)
+		# default prompts stored in backend/prompts
+		pkg_dir = Path(__file__).resolve().parent / "prompts"
+		if pkg_dir.exists():
+			for f in pkg_dir.iterdir():
+				if f.is_file():
+					target = pdir / f.name
+					if not target.exists():
+						copyfile(str(f), str(target))
+	except Exception as e:
+		print(f"Failed to copy default prompts: {e}")
+
 	# Optionally serve built frontend static files (if present). Frontend build
 	# should be placed at ../frontend/dist relative to the backend package, or the
 	# location can be overridden with the FRONTEND_DIST env var / settings.
