@@ -34,7 +34,7 @@ const navigationItems = [
     title: "Scraper",
     url: "/scraper",
     icon: BeakerIcon,
-    description: "Monitor and control review scraping",
+    description: "Monitor and control scraping",
   },
   {
     title: "Analysis",
@@ -47,6 +47,12 @@ const navigationItems = [
     url: "/prompts",
     icon: DocumentTextIcon,
     description: "Manage LLM prompt files",
+  },
+  {
+    title: "LLM Config",
+    url: "/llm-config",
+    icon: CogIcon,
+    description: "Manage models and API keys",
   },
 ];
 
@@ -111,7 +117,7 @@ export function AppSidebar() {
                     <SidebarMenuButton
                       onClick={() => requestNavigation(item.url)}
                       className={cn(
-                        "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                        "flex w-full items-center rounded-lg px-1 py-2 text-sm font-medium transition-colors",
                         "hover:bg-accent hover:text-accent-foreground",
                         "focus-visible:outline-none",
                         isActive
@@ -119,9 +125,11 @@ export function AppSidebar() {
                           : "text-muted-foreground"
                       )}
                     >
-                      <item.icon className="h-5 w-5" />
+                      <div className="flex-shrink-0 w-8 flex items-center justify-center">
+                        <item.icon className="h-5 w-5" />
+                      </div>
                       {!isCollapsed && (
-                        <div className="flex flex-col">
+                        <div className="flex flex-col flex-1 justify-center leading-tight">
                           <span className="font-medium">{item.title}</span>
                           <span className="text-xs opacity-70">{item.description}</span>
                         </div>
@@ -141,7 +149,9 @@ export function AppSidebar() {
               {toolItems.map((item) => (
                 <SidebarMenuItem key={item.url}>
                   <SidebarMenuButton disabled={item.disabled}>
-                    <item.icon className="h-5 w-5" />
+                    <div className="flex-shrink-0 w-8 flex items-center justify-center">
+                      <item.icon className="h-5 w-5" />
+                    </div>
                     {!isCollapsed && (
                       <div className="flex flex-col">
                         <span className="font-medium">{item.title}</span>

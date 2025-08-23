@@ -51,3 +51,61 @@ class Setting(Base):
     key = Column(String, primary_key=True, index=True)
     value = Column(Text, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class AnalysisJob(Base):
+    __tablename__ = "analysis_jobs"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    name = Column(String, nullable=True)
+    app_id = Column(Integer, nullable=True, index=True)
+    settings = Column(Text, nullable=True)
+    provider_list = Column(Text, nullable=True)
+    status = Column(String, nullable=False, default="pending")
+    total_reviews = Column(Integer, nullable=False, default=0)
+    processed_count = Column(Integer, nullable=False, default=0)
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+    error = Column(Text, nullable=True)
+
+    results = relationship("AnalysisResult", back_populates="job", cascade="all, delete-orphan")
+
+
+class AnalysisResult(Base):
+    __tablename__ = "analysis_results"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    job_id = Column(Integer, ForeignKey("analysis_jobs.id"), nullable=False, index=True)
+    app_id = Column(Integer, nullable=True, index=True)
+    game_name = Column(String, nullable=True)
+    review_id = Column(String, ForeignKey("reviews.review_id"), nullable=True, index=True)
+    review_text_snapshot = Column(Text, nullable=True)
+
+    llm_provider = Column(String, nullable=False)
+    model = Column(String, nullable=False)
+    reasoning_effort = Column(String, nullable=True)
+    prompt_used = Column(Text, nullable=True)
+    analysis_output = Column(Text, nullable=True)
+    analysed_review = Column(Text, nullable=True)
+    input_tokens = Column(Integer, nullable=True)
+    output_tokens = Column(Integer, nullable=True)
+    total_tokens = Column(Integer, nullable=True)
+    status = Column(String, nullable=False, default="pending")
+    error = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    completed_at = Column(DateTime, nullable=True)
+
+    job = relationship("AnalysisJob", back_populates="results")
+
+
+class ApiKey(Base):
+    __tablename__ = "api_keys"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    provider = Column(String, nullable=False, index=True)
+    name = Column(String, nullable=True)
+    encrypted_key = Column(Text, nullable=False)
+    masked_key = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    notes = Column(Text, nullable=True)

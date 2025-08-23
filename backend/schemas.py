@@ -65,6 +65,78 @@ class ReviewPage(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class AnalysisJobBase(BaseModel):
+    name: Optional[str] = None
+    app_id: Optional[int] = None
+    settings: Optional[str] = None
+    provider_list: Optional[str] = None
+
+
+class AnalysisJobCreate(AnalysisJobBase):
+    pass
+
+
+class AnalysisJobRead(AnalysisJobBase):
+    id: int
+    status: str
+    total_reviews: int
+    processed_count: int
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AnalysisResultBase(BaseModel):
+    job_id: int
+    app_id: Optional[int] = None
+    game_name: Optional[str] = None
+    review_id: Optional[str] = None
+    review_text_snapshot: Optional[str] = None
+    llm_provider: str
+    model: str
+    reasoning_effort: Optional[str] = None
+    prompt_used: Optional[str] = None
+
+
+class AnalysisResultCreate(AnalysisResultBase):
+    pass
+
+
+class AnalysisResultRead(AnalysisResultBase):
+    id: int
+    analysis_output: Optional[str] = None
+    analysed_review: Optional[str] = None
+    input_tokens: Optional[int] = None
+    output_tokens: Optional[int] = None
+    total_tokens: Optional[int] = None
+    status: str
+    error: Optional[str] = None
+    created_at: datetime
+    completed_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ApiKeyBase(BaseModel):
+    provider: str
+    name: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class ApiKeyCreate(ApiKeyBase):
+    encrypted_key: str
+
+
+class ApiKeyRead(ApiKeyBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+    masked_key: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class GameSearchResponse(BaseModel):
     """Paginated container for game search results."""
     games: List[GameCreate]

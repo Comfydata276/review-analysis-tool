@@ -6,7 +6,7 @@ import React, {
 	useState,
 } from "react";
 import { getActiveGames, searchGames } from "../api/games";
-import { previewAnalysis, getAnalysisSettings, saveAnalysisSettings, deleteAnalysisSettings } from "../api/analysis";
+import { previewAnalysis, getAnalysisSettings, saveAnalysisSettings, deleteAnalysisSettings, startAnalysis, getLLMConfig, listAnalysisJobs } from "../api/analysis";
 import {
 	startScraper,
 }
@@ -96,6 +96,9 @@ export const Analysis: React.FC = () => {
  	const [isLoadingStatus, setIsLoadingStatus] = useState(false);
  	const [error, setError] = useState<string | null>(null);
  	const [running, setRunning] = useState(false);
+ 	const [runLoading, setRunLoading] = useState(false);
+ 	const [llmConfig, setLlmConfig] = useState<any>(null);
+ 	const [llmConfigLoading, setLlmConfigLoading] = useState(false);
  	const [history, setHistory] = useState<Point[]>([]);
  	const [settingsTab, setSettingsTab] = useState("global");
  	const [configurationOpen, setConfigurationOpen] = useState(true);
@@ -326,6 +329,110 @@ export const Analysis: React.FC = () => {
  			});
  	}, [selectedExportGame]);
 
+	// load llm config
+	useEffect(() => {
+		let cancelled = false;
+		async function loadCfg() {
+			setLlmConfigLoading(true);
+			try {
+				const cfg = await getLLMConfig();
+				if (!cancelled) setLlmConfig(cfg || {});
+			} catch (e) {
+				if (!cancelled) setLlmConfig({});
+			} finally {
+				if (!cancelled) setLlmConfigLoading(false);
+			}
+		}
+		loadCfg();
+		return () => { cancelled = true; };
+	}, []);
+
+	// run analysis for each enabled provider/model in LLM config sequentially
+	const handleRunAnalysis = async () => {
+		if (!selectedGame) {
+			toast.error("Select a game before running analysis");
+			return;
+		}
+		if (!llmConfig || !llmConfig.providers) {
+			toast.error("No LLM configuration available");
+			return;
+		}
+
+		// build list of provider/model pairs in configured order
+		const runs: Array<{ provider: string; model: string; reasoning?: string }> = [];
+		for (const pname of Object.keys(llmConfig.providers || {})) {
+			const pconf = llmConfig.providers[pname];
+			if (!pconf || !pconf.enabled) continue;
+			const models = pconf.models || {};
+			for (const mname of Object.keys(models)) {
+				const mconf = models[mname];
+				if (mconf && mconf.enabled) {
+					runs.push({ provider: pname, model: mname, reasoning: mconf.reasoning_default });
+				}
+			}
+		}
+
+		if (runs.length === 0) {
+			toast.error('No enabled provider/models found in LLM Config');
+			return;
+		}
+
+		setRunLoading(true);
+		try {
+			for (const r of runs) {
+				const payload: any = {
+					name: `Run ${r.provider}/${r.model} ${new Date().toISOString()}`,
+					app_id: selectedGame.app_id,
+					settings: {
+						global_settings: {
+							app_id: selectedGame.app_id,
+							language: globalSettings.language,
+							start_date: globalSettings.start_date || undefined,
+							end_date: globalSettings.end_date || undefined,
+							min_playtime: globalSettings.min_playtime,
+							max_playtime: globalSettings.max_playtime,
+							early_access: globalSettings.early_access,
+							received_for_free: globalSettings.received_for_free,
+							max_reviews: globalSettings.complete_scraping ? undefined : globalSettings.max_reviews,
+							complete_analysis: globalSettings.complete_scraping,
+						}
+					},
+					provider: r.provider,
+					model: r.model,
+					reasoning: { effort: r.reasoning || 'medium' },
+					reviews_per_batch: globalSettings.reviews_per_batch || 1,
+					batches_per_request: globalSettings.batches_per_request || 1,
+				};
+
+				// start job
+				const resp = await startAnalysis(payload);
+				toast.success(`Started job ${resp.job_id} for ${r.provider}/${r.model}`);
+
+				// poll for job completion
+				let finished = false;
+				const startTs = Date.now();
+				while (!finished && Date.now() - startTs < 1000 * 60 * 60) { // 60 min timeout per model
+					await new Promise((res) => setTimeout(res, 3000));
+					try {
+						const jobs = await listAnalysisJobs();
+						const job = jobs.find((j: any) => j.id === resp.job_id);
+						if (job && (job.status === 'completed' || job.status === 'error' || job.status === 'cancelled')) {
+							finished = true;
+							if (job.status === 'completed') toast.success(`Job ${resp.job_id} completed`);
+							else toast.error(`Job ${resp.job_id} ended with status ${job.status}`);
+						}
+					} catch (e) {
+						// continue polling
+					}
+				}
+			}
+		} catch (e: any) {
+			toast.error(e.message || 'Failed to start analysis runs');
+		} finally {
+			setRunLoading(false);
+		}
+	};
+
  	const rpmNow = Math.max(0, Math.round(history[history.length - 1]?.rpm || 0));
  	const totalScraped = status?.global_progress?.scraped || 0;
 
@@ -340,7 +447,8 @@ export const Analysis: React.FC = () => {
  			const gameName = selectedGame?.name || `Game_${selectedExportGame}`;
 
  			const BACKEND_URL = (import.meta as any).env.VITE_BACKEND_URL || "http://127.0.0.1:8000";
- 			const url = `${BACKEND_URL}/reviews/export/${selectedExportGame}?format=${format}`;
+            // Prefer export of analysis results if available
+            const url = `${BACKEND_URL}/analysis/export/${selectedExportGame}?format=${format}`;
  			const response = await fetch(url);
 
  			if (!response.ok) {
@@ -530,12 +638,12 @@ export const Analysis: React.FC = () => {
 
  					<Button 
  						variant="gradient"
- 						onClick={() => { /* Placeholder for analysis start */ }}
- 						disabled={!selectedGame}
+ 						onClick={handleRunAnalysis}
+ 						disabled={!selectedGame || runLoading}
  						className="inline-flex items-center gap-2" 
  					>
  						<PlayIcon className="h-4 w-4" />
- 						Run Analysis
+ 						{runLoading ? "Running..." : "Run Analysis"}
  					</Button>
 
  					<Button 

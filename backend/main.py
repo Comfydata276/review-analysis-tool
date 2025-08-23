@@ -22,6 +22,30 @@ def create_app() -> FastAPI:
 	from .database import Base, engine
 	Base.metadata.create_all(bind=engine)
 
+	# Run simple migrations for local SQLite DB (add missing columns)
+	from .config import settings
+	if settings.DATABASE_URL.startswith("sqlite"):
+		# path like sqlite:///./app.db or sqlite:///C:/path/app.db
+		db_path = settings.DATABASE_URL.replace("sqlite:///", "")
+		try:
+			import sqlite3
+			conn = sqlite3.connect(str(db_path))
+			cur = conn.cursor()
+			# Add masked_key to api_keys if missing
+			cur.execute("PRAGMA table_info('api_keys')")
+			cols = [r[1] for r in cur.fetchall()]
+			if 'masked_key' not in cols:
+				try:
+					cur.execute("ALTER TABLE api_keys ADD COLUMN masked_key TEXT")
+					conn.commit()
+				except Exception:
+					# ignore migration failure
+					pass
+			cur.close()
+			conn.close()
+		except Exception as e:
+			print(f"Migration check failed: {e}")
+
 	# First-run: if using SQLite and the `steam_apps` table is missing (or DB missing/empty),
 	# start the background backfill to populate the local applist.
 	from pathlib import Path

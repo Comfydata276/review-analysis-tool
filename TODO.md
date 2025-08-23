@@ -9,10 +9,10 @@ http://localhost:3000/selector
 
 
 TODO
-- Documentate API, App functionality etc. 
+x Documentate API, App functionality etc. 
 x Redo the UI
 x Fix current game scraping ETA, Logs showing the wrong total, global eta
-- Add a way to view reviews in the UI
+
 x Add a way to export reviews as a csv / xlsx file 
 x Change where the Export button is located
 x Add an export UI
@@ -26,8 +26,15 @@ x Rearrange Scraping UI. Change Language & filter + datetime to be just Filterin
 x Max playtime can never be less than or equal to min playtime. 
 x Throughput graph should NEVER be negative. 
 x Analysis page should mimick all of the settings on the scraper page, complete scraping becomes complete analysis, rate limit become simultaneous batching setting (how many batches to send to the server at once)
-- Change the scraper gradient to be green, analysis gradient to be purple and site wide gradient to be orange 
 x Move analysis buttons from widget to be in the header
 x Remove old buttons 
+- Add a way to view reviews in the UI
 - rename Free Games to received for free
 - Refine ETA Algorithm for scraper + analysis 
+- change analysis search algorithm to only return games that are in the reviews db
+- change analysis ui to report progress
+- add in ollama, gemini, anthropic and openrouter providers
+- adjust llm config UI
+- Change the scraper gradient to be green, analysis gradient to be purple and site wide gradient to be orange 
+- return helpful errors via the UI, e.g. incorrect api key, incorrect model name etc. 
+- toast message when settings have been updated on the scraper/analysis pages

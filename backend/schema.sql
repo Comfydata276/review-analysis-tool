@@ -26,3 +26,53 @@ CREATE VIRTUAL TABLE IF NOT EXISTS steam_apps_fts USING fts5(
 );
 
 
+
+-- Analysis job and results tables
+CREATE TABLE IF NOT EXISTS analysis_jobs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT,
+    app_id INTEGER,
+    settings TEXT,
+    provider_list TEXT,
+    status TEXT NOT NULL DEFAULT 'pending',
+    total_reviews INTEGER NOT NULL DEFAULT 0,
+    processed_count INTEGER NOT NULL DEFAULT 0,
+    started_at TEXT,
+    completed_at TEXT,
+    error TEXT
+);
+
+CREATE TABLE IF NOT EXISTS analysis_results (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id INTEGER NOT NULL,
+    app_id INTEGER,
+    game_name TEXT,
+    review_id TEXT,
+    review_text_snapshot TEXT,
+    llm_provider TEXT NOT NULL,
+    model TEXT NOT NULL,
+    reasoning_effort TEXT,
+    prompt_used TEXT,
+    analysis_output TEXT,
+    analysed_review TEXT,
+    input_tokens INTEGER,
+    output_tokens INTEGER,
+    total_tokens INTEGER,
+    status TEXT NOT NULL DEFAULT 'pending',
+    error TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    completed_at TEXT,
+    FOREIGN KEY(job_id) REFERENCES analysis_jobs(id) ON DELETE CASCADE,
+    FOREIGN KEY(review_id) REFERENCES steam_reviews(review_id)
+);
+
+
+CREATE TABLE IF NOT EXISTS api_keys (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    provider TEXT NOT NULL,
+    name TEXT,
+    encrypted_key TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now')),
+    notes TEXT
+);
