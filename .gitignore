@@ -43,6 +43,9 @@ Thumbs.db
 *.swo
 *.tmp
 *.log
+.rat*
+*.csv
+*.xlsx
 
 # -----------------
 # Electron
