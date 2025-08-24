@@ -73,6 +73,18 @@ def search_local_games(
 	return schemas.GameSearchResponse(games=objs, total=total, start=start, count=count)
 
 
+@router.get("/search_local_reviews", response_model=schemas.GameSearchResponse)
+def search_local_games_with_reviews(
+    query: str = Query(..., min_length=1),
+    start: int = Query(0, ge=0),
+    count: int = Query(200, ge=1, le=1000),
+):
+    """Search local applist but only return apps that have reviews in the local DB."""
+    games, total = search_sqlite.search_local_apps_with_reviews(query, start=start, count=count)
+    objs = [schemas.GameCreate(app_id=int(g["app_id"]), name=g["name"]) for g in games]
+    return schemas.GameSearchResponse(games=objs, total=total, start=start, count=count)
+
+
 @router.get("/backfill/status")
 def backfill_status():
 	"""Return current status of the background applist backfill."""

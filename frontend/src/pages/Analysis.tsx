@@ -5,7 +5,7 @@ import React, {
 	useRef,
 	useState,
 } from "react";
-import { getActiveGames, searchGames } from "../api/games";
+import { getActiveGames, searchGamesWithReviews as searchGames } from "../api/games";
 import { previewAnalysis, getAnalysisSettings, saveAnalysisSettings, deleteAnalysisSettings, startAnalysis, getLLMConfig, listAnalysisJobs } from "../api/analysis";
 import {
 	startScraper,
@@ -116,7 +116,7 @@ export const Analysis: React.FC = () => {
  			end_date: undefined,
  			min_playtime: undefined,
  			max_playtime: undefined,
- 			reviews_per_batch: 1,
+ 			reviews_per_batch: 100,
  			batches_per_request: 1,
  			early_access: "include",
  			received_for_free: "include",
@@ -130,7 +130,7 @@ export const Analysis: React.FC = () => {
         end_date: undefined,
         min_playtime: undefined,
         max_playtime: undefined,
-        reviews_per_batch: 1,
+        reviews_per_batch: 100,
         batches_per_request: 1,
         early_access: "include",
         received_for_free: "include",
@@ -416,10 +416,14 @@ export const Analysis: React.FC = () => {
 					try {
 						const jobs = await listAnalysisJobs();
 						const job = jobs.find((j: any) => j.id === resp.job_id);
-						if (job && (job.status === 'completed' || job.status === 'error' || job.status === 'cancelled')) {
-							finished = true;
-							if (job.status === 'completed') toast.success(`Job ${resp.job_id} completed`);
-							else toast.error(`Job ${resp.job_id} ended with status ${job.status}`);
+						if (job) {
+							// update running state and progress
+							setStatus(job);
+							if (job.status === 'completed' || job.status === 'error' || job.status === 'cancelled') {
+								finished = true;
+								if (job.status === 'completed') toast.success(`Job ${resp.job_id} completed`);
+								else toast.error(`Job ${resp.job_id} ended with status ${job.status}`);
+							}
 						}
 					} catch (e) {
 						// continue polling
@@ -667,12 +671,14 @@ export const Analysis: React.FC = () => {
  				</Card>
 
  				<Card title="Current Game">
- 					<div className="flex items-center justify-center">
- 						<RadialProgress value={0} label="Current" className="text-green-600" />
- 					</div>
- 					<div className="mt-2 truncate text-center text-xs text-gray-600 dark:text-gray-400">Idle</div>
- 					<div className="mt-1 text-center text-sm text-gray-600 dark:text-gray-400">ETA --</div>
- 				</Card>
+					<div className="flex items-center justify-center">
+						<RadialProgress value={status && status.total_reviews ? Math.round(((status.processed_count || 0) / status.total_reviews) * 100) : 0} label={status?.status || (running ? "Running" : "Idle")} className="text-green-600" />
+					</div>
+					<div className="mt-2 truncate text-center text-xs text-gray-600 dark:text-gray-400">
+						{status && status.total_reviews ? `${status.processed_count || 0}/${status.total_reviews} completed` : (status?.status || (running ? "Running" : "Idle"))}
+					</div>
+					<div className="mt-1 text-center text-sm text-gray-600 dark:text-gray-400">ETA --</div>
+				</Card>
 
  				<Card title="Throughput (RPM)">
  					<div className="h-24 pt-2">

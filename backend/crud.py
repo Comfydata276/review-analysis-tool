@@ -14,12 +14,19 @@ def get_game(db: Session, app_id: int) -> Optional[models.Game]:
 
 
 def list_games(db: Session) -> List[models.Game]:
-	return db.query(models.Game).order_by(models.Game.name.asc()).all()
+	return db.query(models.Game).filter(models.Game.active == True).order_by(models.Game.name.asc()).all()
 
 
 def create_game(db: Session, game_in: schemas.GameCreate) -> models.Game:
 	game = get_game(db, game_in.app_id)
 	if game:
+		# If the game exists but was previously deactivated, reactivate it
+		if not getattr(game, "active", True):
+			game.active = True
+			game.name = game_in.name or game.name
+			db.add(game)
+			db.commit()
+			db.refresh(game)
 		return game
 	game = models.Game(app_id=game_in.app_id, name=game_in.name)
 	db.add(game)
@@ -32,9 +39,18 @@ def delete_game(db: Session, app_id: int) -> bool:
 	game = get_game(db, app_id)
 	if not game:
 		return False
-	db.delete(game)
-	db.commit()
-	return True
+	# Mark the game inactive instead of deleting so reviews remain in DB
+	try:
+		game.active = False
+		db.add(game)
+		db.commit()
+		db.refresh(game)
+		return True
+	except Exception:
+		# Fallback to deletion if anything unexpected happens
+		db.delete(game)
+		db.commit()
+		return True
 
 
 def search_games_local(db: Session, query: str) -> List[models.Game]:

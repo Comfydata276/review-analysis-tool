@@ -103,7 +103,27 @@ export const LLMConfig: React.FC = () => {
       try {
         await deleteApiKey(id);
         toast.success("Deleted");
-        load();
+        // After deleting a key, reload keys and ensure any providers using this key are disabled
+        await load();
+        try {
+          const cfg = await getLLMConfig();
+          if (cfg && cfg.providers) {
+            let changed = false;
+            Object.keys(cfg.providers).forEach((p) => {
+              if (cfg.providers[p].api_key_id === id) {
+                cfg.providers[p].api_key_id = null;
+                cfg.providers[p].enabled = false;
+                changed = true;
+              }
+            });
+            if (changed) {
+              await saveLLMConfig(cfg);
+              setLlmConfig(cfg);
+            }
+          }
+        } catch (e) {
+          // ignore
+        }
       } catch (e: any) {
         toast.error("Delete failed");
       }
@@ -124,7 +144,15 @@ export const LLMConfig: React.FC = () => {
       <Card>
         <FormSection title="API Keys" description="Add provider API keys (stored encrypted)">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <FormField label="Provider"><Select options={[{label: 'OpenAI', value: 'openai'}]} value={provider} onChange={(e) => setProvider(e.target.value)} /></FormField>
+            <FormField label="Provider">
+              <Select options={[{label: 'OpenAI', value: 'openai'}, {label: 'Google', value: 'google'}, {label: 'Anthropic', value: 'anthropic'}, {label: 'OpenRouter', value: 'openrouter'}]} value={provider} onChange={(e) => setProvider(e.target.value)} />
+              <div className="text-xs text-muted-foreground mt-1">
+                {provider === 'openai' && 'Supported formats: OpenAI keys start with `sk-` or `oai-`.'}
+                {provider === 'openrouter' && 'Supported formats: OpenRouter keys start with `sk-or-`.'}
+                {provider === 'anthropic' && 'Supported formats: Anthropic keys start with `sk-ant-`.'}
+                {provider === 'google' && 'Supported formats: Google API keys start with `AIza`.'}
+              </div>
+            </FormField>
             <FormField label="Name"><Input value={name} onChange={(e) => setName(e.target.value)} /></FormField>
             <FormField label="Key">
               <div className="relative">
@@ -160,10 +188,10 @@ export const LLMConfig: React.FC = () => {
         </FormSection>
         <FormSection title="Providers & Models" description="Enable/disable models per provider">
           <div className="space-y-4">
-            <ProviderCard provider="openai" keys={keys} keysLoading={keysLoading} config={llmConfig} onChange={async (next) => { setLlmConfig(next); await saveLLMConfig(next); }} />
-            <ProviderCard provider="google" keys={keys} keysLoading={keysLoading} config={llmConfig} onChange={async (next) => { setLlmConfig(next); await saveLLMConfig(next); }} />
-            <ProviderCard provider="anthropic" keys={keys} keysLoading={keysLoading} config={llmConfig} onChange={async (next) => { setLlmConfig(next); await saveLLMConfig(next); }} />
-            <ProviderCard provider="ollama" keys={keys} keysLoading={keysLoading} config={llmConfig} onChange={async (next) => { setLlmConfig(next); await saveLLMConfig(next); }} />
+            <ProviderCard provider="OpenAI" keys={keys} keysLoading={keysLoading} config={llmConfig} onChange={async (next) => { setLlmConfig(next); await saveLLMConfig(next); }} />
+            <ProviderCard provider="Google" keys={keys} keysLoading={keysLoading} config={llmConfig} onChange={async (next) => { setLlmConfig(next); await saveLLMConfig(next); }} />
+            <ProviderCard provider="Anthropic" keys={keys} keysLoading={keysLoading} config={llmConfig} onChange={async (next) => { setLlmConfig(next); await saveLLMConfig(next); }} />
+            <ProviderCard provider="OpenRouter" keys={keys} keysLoading={keysLoading} config={llmConfig} onChange={async (next) => { setLlmConfig(next); await saveLLMConfig(next); }} />
           </div>
         </FormSection>
       </Card>

@@ -149,3 +149,92 @@ def search_local_apps(query: str, start: int = 0, count: int = 200) -> Tuple[Lis
 		conn.close()
 
 
+def search_local_apps_with_reviews(query: str, start: int = 0, count: int = 200) -> Tuple[List[Dict], int]:
+    """Search the local `steam_apps`/FTS tables but restrict results to apps that
+    have reviews stored in the local `reviews` table.
+
+    Behavior mirrors `search_local_apps` except that all returned apps are
+    guaranteed to have at least one review in the DB.
+    """
+    q = (query or "").strip()
+    if not q:
+        return ([], 0)
+
+    conn = _connect()
+    try:
+        cur = conn.cursor()
+
+        # If the query is numeric, treat it as an AppID lookup and return exact matches
+        if q.isdigit():
+            try:
+                app_id = int(q)
+                # Only return the app if there are reviews for it
+                cur.execute(
+                    "SELECT COUNT(*) FROM reviews WHERE app_id = ?",
+                    (app_id,)
+                )
+                has = int(cur.fetchone()[0] or 0)
+                if has:
+                    cur.execute(
+                        "SELECT app_id, name FROM steam_apps WHERE app_id = ? LIMIT ?",
+                        (app_id, count),
+                    )
+                    rows = cur.fetchall()
+                    games = _rows_to_games(rows, limit=count)
+                    try:
+                        cur.execute("SELECT COUNT(DISTINCT app_id) FROM reviews WHERE app_id = ?", (app_id,))
+                        total = int(cur.fetchone()[0] or 0)
+                    except Exception:
+                        total = len(games)
+                    return (games, total)
+            except Exception:
+                pass
+
+        # Normalize query for token-like matching (remove punctuation)
+        norm_q = _normalize_text(q)
+
+        if norm_q:
+            fts_query = f"{norm_q}*"
+        else:
+            fts_query = f"{q}*"
+
+        # Try FTS match but restrict to apps that have reviews
+        try:
+            cur.execute(
+                "SELECT rowid, name FROM steam_apps_fts WHERE name MATCH ? AND rowid IN (SELECT DISTINCT app_id FROM reviews) LIMIT ? OFFSET ?",
+                (fts_query, count, start),
+            )
+            rows = cur.fetchall()
+        except Exception:
+            rows = []
+
+        if rows:
+            games = _rows_to_games(rows, limit=count)
+            try:
+                cur.execute("SELECT COUNT(DISTINCT app_id) as c FROM reviews WHERE app_id IN (SELECT rowid FROM steam_apps_fts WHERE name MATCH ?)", (fts_query,))
+                total = int(cur.fetchone()[0] or 0)
+            except Exception:
+                total = len(games)
+            return (games, total)
+
+        # Substring LIKE search on main table restricted to reviewed apps
+        like_q = f"%{norm_q or q}%"
+        cur.execute(
+            "SELECT app_id, name FROM steam_apps WHERE lower(name) LIKE ? AND app_id IN (SELECT DISTINCT app_id FROM reviews) LIMIT ? OFFSET ?",
+            (like_q, count, start),
+        )
+        rows = cur.fetchall()
+        if rows:
+            games = _rows_to_games(rows, limit=count)
+            try:
+                cur.execute("SELECT COUNT(DISTINCT app_id) FROM steam_apps WHERE lower(name) LIKE ? AND app_id IN (SELECT DISTINCT app_id FROM reviews)", (like_q,))
+                total = int(cur.fetchone()[0] or 0)
+            except Exception:
+                total = len(games)
+            return (games, total)
+
+        return ([], 0)
+    finally:
+        conn.close()
+
+

@@ -103,9 +103,24 @@ def post_llm_config(payload: Any = Body(...), db: Session = Depends(get_db)) -> 
 @router.post("/api-keys", response_model=ApiKeyRead)
 def create_api_key(payload: ApiKeyCreate = Body(...), db: Session = Depends(get_db)) -> Any:
     try:
-        enc = encrypt_key(payload.encrypted_key)
+        # Basic provider-specific key format validation
+        prov = str(payload.provider or "").lower()
+        raw = payload.encrypted_key or ""
+        if prov == 'openai' and not (raw.startswith('sk-') or raw.startswith('oai-') or len(raw) > 30):
+            raise HTTPException(status_code=400, detail="Unrecognized OpenAI key format")
+        if prov == 'openrouter' and not raw.startswith('sk-or-'):
+            raise HTTPException(status_code=400, detail="Unrecognized OpenRouter key format")
+        if prov == 'anthropic' and not raw.startswith('sk-ant-'):
+            raise HTTPException(status_code=400, detail="Unrecognized Anthropic key format")
+        if prov == 'google' and not raw.startswith('AIza'):
+            raise HTTPException(status_code=400, detail="Unrecognized Google API key format")
+
+        enc = encrypt_key(raw)
         k = crud.create_api_key(db, payload.provider, enc, payload.name, payload.notes)
         return ApiKeyRead.from_orm(k)
+    except HTTPException:
+        # propagate HTTP errors as-is
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -139,11 +154,30 @@ def update_api_key(key_id: int, payload: Any = Body(...), db: Session = Depends(
         enc = None
         # only encrypt if rotating/providing a new key
         if payload.get("encrypted_key"):
-            enc = encrypt_key(payload.get("encrypted_key"))
+            # Determine provider: prefer payload provider, fall back to DB-stored provider
+            prov = payload.get('provider')
+            if not prov:
+                existing = crud.get_api_key(db, key_id)
+                prov = getattr(existing, 'provider', None) if existing else None
+            p = str(prov or '').lower()
+            raw = payload.get('encrypted_key') or ''
+            if p == 'openai' and not (raw.startswith('sk-') or raw.startswith('oai-') or len(raw) > 30):
+                raise HTTPException(status_code=400, detail="Unrecognized OpenAI key format")
+            if p == 'openrouter' and not raw.startswith('sk-or-'):
+                raise HTTPException(status_code=400, detail="Unrecognized OpenRouter key format")
+            if p == 'anthropic' and not raw.startswith('sk-ant-'):
+                raise HTTPException(status_code=400, detail="Unrecognized Anthropic key format")
+            if p == 'google' and not raw.startswith('AIza'):
+                raise HTTPException(status_code=400, detail="Unrecognized Google API key format")
+
+            enc = encrypt_key(raw)
         k = crud.update_api_key(db, key_id, encrypted_key=enc, name=payload.get("name"), notes=payload.get("notes"), provider=payload.get("provider"))
         if not k:
             raise HTTPException(status_code=404, detail="Not found")
         return {"ok": True}
+    except HTTPException:
+        # propagate HTTP errors as-is
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

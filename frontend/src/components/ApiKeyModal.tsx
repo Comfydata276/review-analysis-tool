@@ -19,8 +19,19 @@ export const ApiKeyModal: React.FC<Props> = ({ open, initial, onClose, onSave })
     if (!key) return null;
     // Only validate when creating a new key (not editing existing)
     if (!initial) {
-      if (provider === 'openai') {
+      const p = String(provider || '').toLowerCase();
+      // Provider-specific prefix checks
+      if (p === 'openai') {
         if (!(key.startsWith('sk-') || key.startsWith('oai-') || key.length > 30)) return 'Unrecognized OpenAI key format';
+      }
+      if (p === 'openrouter') {
+        if (!key.startsWith('sk-or-')) return 'Unrecognized OpenRouter key format';
+      }
+      if (p === 'anthropic') {
+        if (!key.startsWith('sk-ant-')) return 'Unrecognized Anthropic key format';
+      }
+      if (p === 'google') {
+        if (!key.startsWith('AIza')) return 'Unrecognized Google API key format';
       }
       if (key.length < 20) return 'Key looks too short';
     }

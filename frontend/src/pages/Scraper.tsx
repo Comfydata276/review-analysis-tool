@@ -849,7 +849,7 @@ export const Scraper: React.FC = () => {
 
 							{/* Row 3: Free Games */}
 							<FormGrid cols={3}>
-								<FormField label="Free Games" description="Include games received for free">
+								<FormField label="Received for Free" description="Include games received for free">
 									<Select
 										options={[
 											{ label: "Include", value: "include" }, 

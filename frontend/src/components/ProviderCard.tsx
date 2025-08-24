@@ -26,27 +26,42 @@ type Props = {
 };
 
 export const ProviderCard: React.FC<Props> = ({ provider, keys, config, onChange, keysLoading }) => {
-  const pconf = (config.providers && config.providers[provider]) || { enabled: false, api_key_id: null, models: {} };
+  const providerKey = String(provider || "").toLowerCase();
+  // Normalize provider lookup to be case-insensitive: check both original and lower-cased keys
+  const pconf = (config.providers && (config.providers[provider] || config.providers[providerKey] || config.providers[String(provider).toLowerCase()])) || { enabled: false, api_key_id: null, models: {} };
   const models: ModelDef[] = Object.keys(pconf.models || {}).map((k) => ({ api_name: k, ...(pconf.models[k] as any) }));
   const [openModal, setOpenModal] = useState(false);
   const [editing, setEditing] = useState<ModelDef | null>(null);
 
-  const firstKeyForProvider = keys.find((k) => k.provider === provider) || null;
+  // Match keys by provider case-insensitively
+  const firstKeyForProvider = keys.find((k) => String(k.provider || "").toLowerCase() === providerKey) || null;
 
   async function toggleProvider() {
     const next = { ...(config || {}) };
     next.providers = next.providers || {};
-    next.providers[provider] = next.providers[provider] || { models: {} };
-    next.providers[provider].enabled = !Boolean(next.providers[provider].enabled);
-    if (!next.providers[provider].api_key_id && firstKeyForProvider) next.providers[provider].api_key_id = firstKeyForProvider.id;
+    next.providers[providerKey] = next.providers[providerKey] || { models: {} };
+
+    // Prevent enabling provider if no API key is selected
+    const currentlyEnabled = Boolean(next.providers[providerKey].enabled);
+    const hasApiKey = Boolean(next.providers[providerKey].api_key_id) || Boolean(firstKeyForProvider);
+    if (!currentlyEnabled && !hasApiKey) {
+      toast.error("Select an API key before enabling this provider");
+      return;
+    }
+    next.providers[providerKey].enabled = !currentlyEnabled;
+    if (!next.providers[providerKey].api_key_id && firstKeyForProvider) next.providers[providerKey].api_key_id = firstKeyForProvider.id;
     await onChange(next);
   }
 
   async function selectKey(id: number) {
     const next = { ...(config || {}) };
     next.providers = next.providers || {};
-    next.providers[provider] = next.providers[provider] || { models: {} };
-    next.providers[provider].api_key_id = id;
+    next.providers[providerKey] = next.providers[providerKey] || { models: {} };
+    next.providers[providerKey].api_key_id = id;
+    // If user unselects the key (id === null) then disable the provider
+    if (id === null) {
+      next.providers[providerKey].enabled = false;
+    }
     try {
       await onChange(next);
       toast.success("API key set active");
@@ -59,17 +74,18 @@ export const ProviderCard: React.FC<Props> = ({ provider, keys, config, onChange
   async function saveModel(md: ModelDef, isNew: boolean) {
     const next = { ...(config || {}) };
     next.providers = next.providers || {};
-    next.providers[provider] = next.providers[provider] || { models: {} };
-    next.providers[provider].models = next.providers[provider].models || {};
-    next.providers[provider].models[md.api_name] = { display: md.display, enabled: md.enabled !== false, tags: md.tags || [], reasoning_default: md.reasoning_default || "medium" };
+    next.providers[providerKey] = next.providers[providerKey] || { models: {} };
+    next.providers[providerKey].models = next.providers[providerKey].models || {};
+    next.providers[providerKey].models[md.api_name] = { display: md.display, enabled: md.enabled !== false, tags: md.tags || [], reasoning_default: md.reasoning_default || "medium" };
     await onChange(next);
     setOpenModal(false);
   }
 
   async function deleteModel(api_name: string) {
     const next = { ...(config || {}) };
-    if (next.providers && next.providers[provider] && next.providers[provider].models) {
-      delete next.providers[provider].models[api_name];
+    if (next.providers && (next.providers[provider] || next.providers[providerKey]) && (next.providers[provider] || next.providers[providerKey]).models) {
+      const target = next.providers[provider] || next.providers[providerKey];
+      delete target.models[api_name];
       await onChange(next);
     }
   }
@@ -93,7 +109,7 @@ export const ProviderCard: React.FC<Props> = ({ provider, keys, config, onChange
             options={[
               { label: "No key selected", value: "" },
               ...keys
-                .filter((k) => k.provider === provider)
+                .filter((k) => String(k.provider || "").toLowerCase() === providerKey)
                 .map((k) => ({ label: k.name || `(key ${k.id})`, value: String(k.id) })),
             ]}
             value={pconf.api_key_id ? String(pconf.api_key_id) : ""}
@@ -141,7 +157,7 @@ export const ProviderCard: React.FC<Props> = ({ provider, keys, config, onChange
                 <button onClick={() => { setEditing(m); setOpenModal(true); }} className="p-2 rounded hover:bg-muted"><PencilSquareIcon className="h-4 w-4"/></button>
                 <button onClick={() => {
                   // delegate to top-level confirm modal via custom event
-                  const ev = new CustomEvent('llm:confirm-delete-model', { detail: { provider, api_name: m.api_name } });
+                  const ev = new CustomEvent('llm:confirm-delete-model', { detail: { provider: providerKey, api_name: m.api_name } });
                   window.dispatchEvent(ev as any);
                 }} className="p-2 rounded hover:bg-muted"><TrashIcon className="h-4 w-4"/></button>
               </div>

@@ -24,6 +24,13 @@ export async function searchGames(query: string, start = 0, count = 200): Promis
 	return handleResponse<GameSearchResponse>(resp);
 }
 
+// Search local apps but only return games that have reviews in the DB
+export async function searchGamesWithReviews(query: string, start = 0, count = 200): Promise<GameSearchResponse> {
+    const url = `${BASE_URL}/games/search_local_reviews?query=${encodeURIComponent(query)}&start=${start}&count=${count}`;
+    const resp = await fetch(url);
+    return handleResponse<GameSearchResponse>(resp);
+}
+
 // Meilisearch removed; use `searchGames` which queries local SQLite search.
 
 export async function getAppList(): Promise<Game[]> {

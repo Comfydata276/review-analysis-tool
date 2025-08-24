@@ -25,10 +25,10 @@ class OpenAIProvider(BaseProvider):
     def _headers(self) -> Dict[str, str]:
         return {"Authorization": f"Bearer {self.api_key}"}
 
-    def analyze_batch(self, inputs: List[str], prompt: str, model: str, reasoning: Optional[Dict[str, Any]] = None, completion_window: str = "24h") -> List[Dict[str, Any]]:
+    def analyze_batch(self, inputs: List[str], prompt: str, model: str, reasoning: Optional[Dict[str, Any]] = None, completion_window: str = "24h", progress_callback: Optional[Any] = None) -> List[Dict[str, Any]]:
         # Build JSONL content: each line is a JSON object representing the request body
         lines = []
-        for inp in inputs:
+        for idx, inp in enumerate(inputs):
             full_prompt = f"{prompt}\n\nReview:\n{inp}"
             # For Chat Completions endpoint use `reasoning_effort` (string) if provided.
             body: Dict[str, Any] = {"model": model, "messages": [{"role": "user", "content": full_prompt}]}
@@ -43,7 +43,14 @@ class OpenAIProvider(BaseProvider):
                 if effort:
                     # Chat completions expects `reasoning_effort` top-level string
                     body["reasoning_effort"] = effort
-            lines.append(json.dumps(body))
+            # Build request input object required by OpenAI Batch API
+            request_obj: Dict[str, Any] = {
+                "custom_id": str(idx + 1),
+                "method": "POST",
+                "url": "/v1/chat/completions",
+                "body": body,
+            }
+            lines.append(json.dumps(request_obj))
 
         jsonl = "\n".join(lines).encode("utf-8")
 
@@ -78,6 +85,18 @@ class OpenAIProvider(BaseProvider):
             if not rb.ok:
                 break
             final_batch = rb.json()
+            # report progress via request_counts if available
+            try:
+                request_counts = final_batch.get("request_counts", {})
+                completed_count = request_counts.get("completed", 0)
+                total_count = request_counts.get("total", 0)
+                if progress_callback:
+                    try:
+                        progress_callback(completed_count, total_count)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
             status = final_batch.get("status")
             if status in ("completed", "failed", "cancelled"):
                 break

@@ -138,6 +138,14 @@ def _run_analysis_job(job_id: int, payload: dict):
         # create analysis_result rows
         for r in reviews:
             ar = crud.create_analysis_result(db, type("R", (), {"job_id": job.id, "app_id": r.app_id, "game_name": getattr(r, "game_name", None), "review_id": r.review_id, "review_text_snapshot": r.review_text, "llm_provider": provider_name, "model": payload.get("model", "gpt-5"), "reasoning_effort": payload.get("reasoning", {}).get("effort") if payload.get("reasoning") else None, "prompt_used": prompt_text}))
+        # set total_reviews on the job so UI can display progress
+        try:
+            job.total_reviews = len(reviews)
+            job.started_at = func.now()
+            db.add(job)
+            db.commit()
+        except Exception:
+            db.rollback()
         # process in batches
         results = db.query(models.AnalysisResult).filter(models.AnalysisResult.job_id == job.id).all()
         reviews_per_batch = int(payload.get("reviews_per_batch", 5))
@@ -147,7 +155,44 @@ def _run_analysis_job(job_id: int, payload: dict):
             outs = []
             inputs = [b.review_text_snapshot or "" for b in batch]
             if hasattr(provider, "analyze_batch"):
-                resp = provider.analyze_batch(inputs, batch[0].prompt_used if batch else "", batch[0].model if batch else payload.get("model", "gpt-5"), {"effort": batch[0].reasoning_effort} if batch and batch[0].reasoning_effort else None)
+                # progress callback updates the AnalysisJob.processed_count periodically
+                # capture baseline processed_count so progress counts are incremental
+                # track whether provider progress_cb reported progress for this batch
+                progress_reported = {"val": False}
+                try:
+                    db_for_baseline = next(get_db())
+                    j_baseline = crud.get_analysis_job(db_for_baseline, job.id)
+                    baseline_count = int(j_baseline.processed_count or 0) if j_baseline else 0
+                except Exception:
+                    baseline_count = 0
+
+                def progress_cb(completed: int, total: int):
+                    try:
+                        db_local = next(get_db())
+                        j = crud.get_analysis_job(db_local, job.id)
+                        if j:
+                            # set processed_count as baseline + completed for this batch
+                            j.processed_count = int(baseline_count + (completed or 0))
+                            # only set total if provided to avoid overwriting
+                            if total:
+                                j.total_reviews = int(total)
+                            db_local.add(j)
+                            db_local.commit()
+                            progress_reported["val"] = True
+                    except Exception:
+                        try:
+                            db_local.rollback()
+                        except Exception:
+                            pass
+
+                resp = provider.analyze_batch(
+                    inputs,
+                    batch[0].prompt_used if batch else "",
+                    batch[0].model if batch else payload.get("model", "gpt-5"),
+                    {"effort": batch[0].reasoning_effort} if batch and batch[0].reasoning_effort else None,
+                    "24h",
+                    progress_cb,
+                )
                 outs = resp
             else:
                 for idx, inp in enumerate(inputs):
@@ -159,6 +204,20 @@ def _run_analysis_job(job_id: int, payload: dict):
                 try:
                     # persist raw output object (dict) when possible so mappers can parse
                     crud.update_analysis_result_output(db_local, b.id, outs[i])
+                except Exception:
+                    pass
+            # after persisting this batch, increment processed_count if provider didn't report progress
+            try:
+                if not progress_reported.get("val", False):
+                    db_local = next(get_db())
+                    j = crud.get_analysis_job(db_local, job.id)
+                    if j:
+                        j.processed_count = min(j.total_reviews or 0, (j.processed_count or 0) + len(batch))
+                        db_local.add(j)
+                        db_local.commit()
+            except Exception:
+                try:
+                    db_local.rollback()
                 except Exception:
                     pass
 

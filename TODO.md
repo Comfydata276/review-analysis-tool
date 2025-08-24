@@ -29,12 +29,13 @@ x Analysis page should mimick all of the settings on the scraper page, complete 
 x Move analysis buttons from widget to be in the header
 x Remove old buttons 
 - Add a way to view reviews in the UI
-- rename Free Games to received for free
+x rename Free Games to received for free
 - Refine ETA Algorithm for scraper + analysis 
-- change analysis search algorithm to only return games that are in the reviews db
+x change analysis search algorithm to only return games that are in the reviews db
 - change analysis ui to report progress
 - add in ollama, gemini, anthropic and openrouter providers
 - adjust llm config UI
 - Change the scraper gradient to be green, analysis gradient to be purple and site wide gradient to be orange 
 - return helpful errors via the UI, e.g. incorrect api key, incorrect model name etc. 
 - toast message when settings have been updated on the scraper/analysis pages
+- limit the number of toast messages on the screen.

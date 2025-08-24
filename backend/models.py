@@ -10,6 +10,8 @@ class Game(Base):
 
 	app_id = Column(Integer, primary_key=True, index=True)
 	name = Column(String, index=True, nullable=False)
+	# Whether the game is currently in the active queue. Default True for existing/new rows.
+	active = Column(Boolean, default=True, nullable=False)
 	added_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 	last_scraped_at = Column(DateTime, nullable=True)
 	last_scraped_cursor = Column(String, nullable=True)
