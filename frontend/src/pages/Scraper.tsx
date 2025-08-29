@@ -59,6 +59,20 @@ export const Scraper: React.FC = () => {
 	const [error, setError] = useState<string | null>(null);
 	const [running, setRunning] = useState(false);
 	const [history, setHistory] = useState<Point[]>([]);
+	const [runFinalState, setRunFinalState] = useState<'idle'|'running'|'finished'|'cancelled'>('idle');
+
+	// restore history from localStorage so throughput graph persists across refreshes
+	useEffect(() => {
+		try {
+			const raw = localStorage.getItem("scraper:history");
+			if (raw) {
+				const arr = JSON.parse(raw) as Point[];
+				setHistory(arr.slice(-120));
+			}
+		} catch (e) {
+			// ignore
+		}
+	}, []);
 	const [settingsTab, setSettingsTab] = useState("global");
 	const [configurationOpen, setConfigurationOpen] = useState(true);
 	const [exportOpen, setExportOpen] = useState(false);
@@ -314,26 +328,64 @@ export const Scraper: React.FC = () => {
 			try {
 				setIsLoadingStatus(true);
 				const s = await getScraperStatus();
+				// update status
 				setStatus(s);
-				setRunning(s.is_running);
+				// determine running and final state
+				if (s.is_running) {
+					setRunning(true);
+					setRunFinalState('running');
+				} else {
+					// if previously running and now stopped, mark finished or cancelled
+					if (prevRunningRef.current) {
+						// if scraped reached totals -> finished, else cancelled
+						const g = s.global_progress || { scraped: 0, total: 0 };
+						if (g.total && g.scraped >= g.total) setRunFinalState('finished');
+						else setRunFinalState('cancelled');
+					}
+					setRunning(false);
+				}
 				// live stats history (global scraped -> rpm)
 				const now = Date.now();
 				const scraped = s.global_progress?.scraped || 0;
-				setHistory((prev) => {
-					const prevPoint = prev[prev.length - 1];
-					let rpm = 0;
-					if (prevPoint) {
-						const dt = (now - prevPoint.t) / 1000;
-						const ds = scraped - prevPoint.scraped;
-						let raw = dt > 0 ? (ds / dt) * 60 : 0;
-						if (!isFinite(raw) || isNaN(raw)) raw = 0;
-						// RPM cannot be negative - clamp to zero
-						rpm = Math.max(0, raw);
-					}
-					const next = [...prev, { t: now, scraped, rpm }];
-					// keep last ~120 points (~4 minutes @2s polling)
-					return next.slice(-120);
-				});
+				// Only compute/append throughput while job is running
+				if (s.is_running) {
+					setHistory((prev) => {
+						const prevPoint = prev[prev.length - 1];
+						let rpm = 0;
+						if (prevPoint) {
+							const dt = (now - prevPoint.t) / 1000;
+							const ds = scraped - prevPoint.scraped;
+							let raw = dt > 0 ? (ds / dt) * 60 : 0;
+							if (!isFinite(raw) || isNaN(raw)) raw = 0;
+							// RPM cannot be negative - clamp to zero
+							rpm = Math.max(0, raw);
+						}
+						const next = [...prev, { t: now, scraped, rpm }];
+						// keep last ~120 points (~4 minutes @2s polling)
+						const sliced = next.slice(-120);
+						// persist history
+						try { localStorage.setItem("scraper:history", JSON.stringify(sliced)); } catch (e) {}
+						return sliced;
+					});
+				} else if (prevRunningRef.current) {
+					// transition: append a final point representing completion/cancel
+					setHistory((prev) => {
+						const next = [...prev, { t: now, scraped, rpm: 0 }];
+						const sliced = next.slice(-120);
+						try { localStorage.setItem("scraper:history", JSON.stringify(sliced)); } catch (e) {}
+						return sliced;
+					});
+				}
+
+				// persist history so it survives refreshes
+				try {
+					localStorage.setItem("scraper:history", JSON.stringify((prev => {
+						const next2 = [...prev, { t: now, scraped, rpm }];
+						return next2.slice(-120);
+					})([])));
+				} catch (e) {
+					// ignore
+				}
 			} catch (e: any) {
 				const msg = e.message || "Status error";
 				setError(msg);
@@ -387,19 +439,34 @@ export const Scraper: React.FC = () => {
 	}, []);
 
 	const globalPct = useMemo(() => {
+		if (runFinalState === 'finished') return 100;
+		if (runFinalState === 'cancelled') return 100; // show full progress on cancel as requested
 		const g = status?.global_progress;
 		if (!g || !g.total) return 0;
 		return Math.min(100, Math.floor((g.scraped / g.total) * 100));
-	}, [status]);
+	}, [status, runFinalState]);
 
 	const currentPct = useMemo(() => {
+		if (runFinalState === 'finished') return 100;
+		if (runFinalState === 'cancelled') return 100;
 		const c = status?.current_game_progress;
 		if (!c || !c.total) return 0;
 		return Math.min(100, Math.floor((c.scraped / c.total) * 100));
-	}, [status]);
+	}, [status, runFinalState]);
 
 	const rpmNow = Math.max(0, Math.round(history[history.length - 1]?.rpm || 0));
 	const totalScraped = status?.global_progress?.scraped || 0;
+	const etaText = useMemo(() => {
+		if (runFinalState === 'finished') return 'Finished';
+		if (runFinalState === 'cancelled') return 'Cancelled';
+		return formatETA(status?.global_progress?.eta_seconds || 0);
+	}, [status, runFinalState]);
+
+	const currentEtaText = useMemo(() => {
+		if (runFinalState === 'finished') return 'Finished';
+		if (runFinalState === 'cancelled') return 'Cancelled';
+		return formatETA(status?.current_game_progress?.eta_seconds || 0);
+	}, [status, runFinalState]);
 	const rateLimit = globalSettings.rate_limit_rpm;
 
 	const handleExport = useCallback(async (format: "csv" | "xlsx") => {
@@ -608,7 +675,7 @@ export const Scraper: React.FC = () => {
 					<div className="flex items-center justify-center">
 						<RadialProgress value={globalPct} label="Global" className="text-blue-600" />
 					</div>
-					<div className="mt-3 text-center text-sm text-gray-600 dark:text-gray-400">ETA {formatETA(status?.global_progress?.eta_seconds || 0)}</div>
+					<div className="mt-3 text-center text-sm text-gray-600 dark:text-gray-400">ETA {etaText}</div>
 				</Card>
 
 				<Card title="Current Game">
@@ -616,7 +683,7 @@ export const Scraper: React.FC = () => {
 						<RadialProgress value={currentPct} label="Current" className="text-green-600" />
 					</div>
 					<div className="mt-2 truncate text-center text-xs text-gray-600 dark:text-gray-400">{status?.current_game ? `${status.current_game.name} (${status.current_game.app_id})` : "Idle"}</div>
-					<div className="mt-1 text-center text-sm text-gray-600 dark:text-gray-400">ETA {formatETA(status?.current_game_progress?.eta_seconds || 0)}</div>
+					<div className="mt-1 text-center text-sm text-gray-600 dark:text-gray-400">ETA {currentEtaText}</div>
 				</Card>
 
 				<Card title="Throughput (RPM)">

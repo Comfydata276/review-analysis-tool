@@ -12,7 +12,6 @@ TODO
 x Documentate API, App functionality etc. 
 x Redo the UI
 x Fix current game scraping ETA, Logs showing the wrong total, global eta
-
 x Add a way to export reviews as a csv / xlsx file 
 x Change where the Export button is located
 x Add an export UI
@@ -32,6 +31,7 @@ x Remove old buttons
 x rename Free Games to received for free
 - Refine ETA Algorithm for scraper + analysis 
 x change analysis search algorithm to only return games that are in the reviews db
+
 - change analysis ui to report progress
 - add in ollama, gemini, anthropic and openrouter providers
 - adjust llm config UI
@@ -39,3 +39,8 @@ x change analysis search algorithm to only return games that are in the reviews 
 - return helpful errors via the UI, e.g. incorrect api key, incorrect model name etc. 
 - toast message when settings have been updated on the scraper/analysis pages
 - limit the number of toast messages on the screen.
+- Change game selector search so it populates search results as you search
+x Save game in analysis settings
+x Set prompt file upload type to .txt only 
+
+

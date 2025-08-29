@@ -9,6 +9,7 @@ const Scraper = lazy(() => import("./pages/Scraper").then((m) => ({ default: m.S
 const Analysis = lazy(() => import("./pages/Analysis").then((m) => ({ default: m.Analysis })));
 const Prompt = lazy(() => import("./pages/Prompt").then((m) => ({ default: m.Prompt })));
 const LLMConfig = lazy(() => import("./pages/LLMConfig").then((m) => ({ default: m.LLMConfig })));
+const AnalysisResults = lazy(() => import("./pages/AnalysisResults").then((m) => ({ default: m.AnalysisResults })));
 
 export default function App() {
 	return (
@@ -48,6 +49,14 @@ export default function App() {
 								element={
 									<Suspense fallback={<div className="p-8 text-center">Loading LLM Config...</div>}>
 										<LLMConfig />
+									</Suspense>
+								}
+							/>
+							<Route
+								path="/analysis-results"
+								element={
+									<Suspense fallback={<div className="p-8 text-center">Loading Analysis Results...</div>}>
+										<AnalysisResults />
 									</Suspense>
 								}
 							/>

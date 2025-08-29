@@ -54,6 +54,12 @@ const navigationItems = [
     icon: CogIcon,
     description: "Manage models and API keys",
   },
+  {
+    title: "Analysis Results",
+    url: "/analysis-results",
+    icon: DocumentTextIcon,
+    description: "View analysed review results",
+  },
 ];
 
 const toolItems = [

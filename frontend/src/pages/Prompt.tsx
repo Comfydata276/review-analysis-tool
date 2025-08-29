@@ -292,11 +292,18 @@ export const Prompt: React.FC = () => {
             <input
               ref={fileInputRef}
               type="file"
-              accept="text/*"
+              accept=".txt"
               className="hidden"
               onChange={(e) => {
                 const f = e.target.files?.[0];
-                if (f) handleUploadFile(f);
+                if (f) {
+                  const isTxt = /\.txt$/i.test(f.name) || f.type === "text/plain";
+                  if (!isTxt) {
+                    toast.error("Only .txt files are allowed");
+                  } else {
+                    handleUploadFile(f);
+                  }
+                }
                 if (e.target) e.target.value = "";
               }}
             />

@@ -141,6 +141,18 @@ def create_analysis_result(db: Session, result_in) -> models.AnalysisResult:
     db.add(r)
     db.commit()
     db.refresh(r)
+    # If game_name is missing, try to populate it from the Games table using app_id
+    try:
+        if (not r.game_name) and r.app_id is not None:
+            g = db.query(models.Game).filter(models.Game.app_id == r.app_id).first()
+            if g:
+                r.game_name = g.name
+                db.add(r)
+                db.commit()
+                db.refresh(r)
+    except Exception:
+        # ignore any errors here; game_name can be backfilled later via /analysis/backfill
+        pass
     return r
 
 

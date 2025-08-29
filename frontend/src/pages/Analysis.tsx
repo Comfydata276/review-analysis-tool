@@ -33,6 +33,7 @@ import {
 	Tooltip,
 } from "recharts";
 import { ChevronDownIcon } from "@heroicons/react/24/outline";
+import { listAnalysisResults } from "../api/analysis";
 
 function formatETA(sec: number): string {
  	if (!sec || sec <= 0) return "--";
@@ -53,6 +54,7 @@ export const Analysis: React.FC = () => {
  	const [gameSuggestions, setGameSuggestions] = useState<Game[]>([]);
  	const [loadingSuggestions, setLoadingSuggestions] = useState<boolean>(false);
  	const [debouncedQuery, setDebouncedQuery] = useState<string>("");
+ 	const [selectedGameAppId, setSelectedGameAppId] = useState<number | null>(null);
 
 	// preview state
 	const [isPreviewLoading, setIsPreviewLoading] = useState<boolean>(false);
@@ -106,6 +108,7 @@ export const Analysis: React.FC = () => {
  	const [selectedExportGame, setSelectedExportGame] = useState<number | null>(null);
  	const [reviewsAvailable, setReviewsAvailable] = useState<number | null>(null);
  	const [steamTotalReviews, setSteamTotalReviews] = useState<number | null>(null);
+ 	const [analysisResults, setAnalysisResults] = useState<any[]>([]);
 
  	const [globalSettings, setGlobalSettings] =
  		useState<any>({
@@ -162,6 +165,11 @@ export const Analysis: React.FC = () => {
  						if (typeof srv.ui.configurationOpen === "boolean") setConfigurationOpen(srv.ui.configurationOpen);
  						if (typeof srv.ui.exportOpen === "boolean") setExportOpen(srv.ui.exportOpen);
  						if (srv.ui.selectedExportGame) setSelectedExportGame(Number(srv.ui.selectedExportGame));
+ 						if (srv.ui.gameQuery) setGameQuery(srv.ui.gameQuery);
+ 						if (srv.ui.selectedGameAppId) {
+ 							const id = Number(srv.ui.selectedGameAppId);
+ 							if (!isNaN(id)) setSelectedGameAppId(id);
+ 						}
  					}
  					skipSaveRef.current = false; // Allow autosave after loading
  					return;
@@ -192,6 +200,13 @@ export const Analysis: React.FC = () => {
  				if (sel) {
  					const n = Number(sel);
  					if (!isNaN(n)) setSelectedExportGame(n);
+ 				}
+ 				const gq = localStorage.getItem("analysis:gameQuery");
+ 				if (gq) setGameQuery(gq);
+ 				const sgi = localStorage.getItem("analysis:selectedGameAppId");
+ 				if (sgi) {
+ 					const id = Number(sgi);
+ 					if (!isNaN(id)) setSelectedGameAppId(id);
  				}
  				skipSaveRef.current = false; // Allow autosave after loading
  			} catch (e) {
@@ -248,6 +263,16 @@ export const Analysis: React.FC = () => {
  		} catch (e) {}
  	}, [selectedExportGame]);
 
+ 	useEffect(() => {
+ 		try {
+ 			if (selectedGameAppId === null) {
+ 				localStorage.removeItem("analysis:selectedGameAppId");
+ 			} else {
+ 				localStorage.setItem("analysis:selectedGameAppId", String(selectedGameAppId));
+ 			}
+ 		} catch (e) {}
+ 	}, [selectedGameAppId]);
+
  	// Debounced autosave to server (also keeps localStorage via existing effects)
  	useEffect(() => {
  		// skip autosave during initial load
@@ -266,6 +291,8 @@ export const Analysis: React.FC = () => {
  					configurationOpen,
  					exportOpen,
  					selectedExportGame,
+ 					gameQuery,
+ 					selectedGameAppId,
  				},
  			};
  			try {
@@ -282,7 +309,7 @@ export const Analysis: React.FC = () => {
  				saveTimerRef.current = null;
  			}
  		};
- 	}, [globalSettings, perGameOverrides, settingsTab, configurationOpen, exportOpen, selectedExportGame]);
+ 	}, [globalSettings, perGameOverrides, settingsTab, configurationOpen, exportOpen, selectedExportGame, gameQuery, selectedGameAppId]);
 
  	const resetSettings = () => {
  		setGlobalSettings({ ...DEFAULT_GLOBAL_SETTINGS });
@@ -321,13 +348,37 @@ export const Analysis: React.FC = () => {
  				if (games.length > 0 && !selectedExportGame) {
  					setSelectedExportGame(games[0].app_id);
  				}
+ 				// auto-select game object if we have a persisted app id
+ 				if (selectedGameAppId) {
+ 					const match = games.find(g => g.app_id === selectedGameAppId);
+ 					if (match) {
+ 						setSelectedGame(match);
+ 						setGameQuery(`${match.name} (${match.app_id})`);
+ 					}
+ 				}
  			})
  			.catch((e) => {
  				const msg = e.message || "Failed to load active games";
  				setError(msg);
  				toast.error(msg);
  			});
- 	}, [selectedExportGame]);
+ 	}, [selectedExportGame, selectedGameAppId]);
+
+// load analysis results for selected game for live view
+useEffect(() => {
+	let cancelled = false;
+	async function loadResults() {
+		if (!selectedExportGame) { setAnalysisResults([]); return; }
+		try {
+			const res = await listAnalysisResults(selectedExportGame, 200, 0);
+			if (!cancelled) setAnalysisResults(res || []);
+		} catch (e) {
+			if (!cancelled) setAnalysisResults([]);
+		}
+	}
+	loadResults();
+	return () => { cancelled = true; };
+}, [selectedExportGame]);
 
 	// load llm config
 	useEffect(() => {
@@ -347,15 +398,60 @@ export const Analysis: React.FC = () => {
 		return () => { cancelled = true; };
 	}, []);
 
+	// Poll analysis jobs so UI shows ongoing runs after refresh / tab switch
+	useEffect(() => {
+		let cancelled = false;
+		let timer: any = null;
+		async function pollJobs() {
+			try {
+				const jobs = await listAnalysisJobs();
+				const runningJobs = (jobs || []).filter((j: any) => ['running', 'pending', 'queued'].includes(j.status));
+				if (cancelled) return;
+				if (runningJobs.length > 0) {
+					setRunning(true);
+					// prefer the earliest running job
+					setStatus(runningJobs[0]);
+				} else {
+					setRunning(false);
+					// keep last status or clear
+					// setStatus(null);
+				}
+			} catch (e) {
+				console.error('Failed to poll analysis jobs', e);
+			}
+		}
+		pollJobs();
+		timer = setInterval(pollJobs, 3000);
+		return () => { cancelled = true; if (timer) clearInterval(timer); };
+	}, []);
+
 	// run analysis for each enabled provider/model in LLM config sequentially
 	const handleRunAnalysis = async () => {
-		if (!selectedGame) {
+		const appId = selectedGame?.app_id || selectedGameAppId;
+		if (!appId) {
 			toast.error("Select a game before running analysis");
 			return;
 		}
 		if (!llmConfig || !llmConfig.providers) {
 			toast.error("No LLM configuration available");
 			return;
+		}
+
+		// ensure selectedGame is populated in UI if possible
+		if (!selectedGame) {
+			const match = activeGames.find(g => g.app_id === appId);
+			if (match) {
+				setSelectedGame(match);
+			} else {
+				try {
+					const resp = await searchGames(String(appId), 0, 1);
+					if (resp && resp.games && resp.games.length > 0) {
+						setSelectedGame(resp.games[0]);
+					}
+				} catch (e) {
+					// ignore
+				}
+			}
 		}
 
 		// build list of provider/model pairs in configured order
@@ -382,10 +478,10 @@ export const Analysis: React.FC = () => {
 			for (const r of runs) {
 				const payload: any = {
 					name: `Run ${r.provider}/${r.model} ${new Date().toISOString()}`,
-					app_id: selectedGame.app_id,
+					app_id: appId,
 					settings: {
 						global_settings: {
-							app_id: selectedGame.app_id,
+							app_id: appId,
 							language: globalSettings.language,
 							start_date: globalSettings.start_date || undefined,
 							end_date: globalSettings.end_date || undefined,
@@ -597,13 +693,14 @@ export const Analysis: React.FC = () => {
 						setPreviewError(null);
 						setIsPreviewLoading(true);
 						try {
-							if (!selectedGame) {
+							const previewAppId = selectedGame?.app_id || selectedGameAppId;
+							if (!previewAppId) {
 								setPreviewError("Please select a game from the suggestions before previewing.");
 								return;
 							}
 							const payload: any = {
 								global_settings: {
-									app_id: selectedGame.app_id,
+									app_id: previewAppId,
 									language: globalSettings.language,
 									start_date: globalSettings.start_date || undefined,
 									end_date: globalSettings.end_date || undefined,
@@ -625,7 +722,7 @@ export const Analysis: React.FC = () => {
 							setIsPreviewLoading(false);
 						}
 					}}
-					disabled={isPreviewLoading || !selectedGame}
+					disabled={isPreviewLoading || !(selectedGame || selectedGameAppId)}
 				>
 					{isPreviewLoading ? "Loading..." : "Run Preview Analysis"}
 				</Button>
@@ -643,7 +740,7 @@ export const Analysis: React.FC = () => {
  					<Button 
  						variant="gradient"
  						onClick={handleRunAnalysis}
- 						disabled={!selectedGame || runLoading}
+ 						disabled={!(selectedGame || selectedGameAppId) || runLoading}
  						className="inline-flex items-center gap-2" 
  					>
  						<PlayIcon className="h-4 w-4" />
@@ -752,12 +849,23 @@ export const Analysis: React.FC = () => {
 									<Input
 										value={gameQuery}
 										placeholder="Type game name or AppID"
-										onChange={(e) => { setGameQuery(e.target.value); setSelectedGame(null); }}
+										onChange={(e) => {
+											const v = e.target.value;
+											setGameQuery(v);
+											// if cleared, remove persisted selection
+											if (!v || v.trim() === "") {
+												setSelectedGame(null);
+												setSelectedGameAppId(null);
+											} else {
+												// while typing keep the app id until a suggestion is picked
+												setSelectedGame(null);
+											}
+										}}
 									/>
 									{gameSuggestions.length > 0 && (
 										<div className="absolute z-40 mt-1 w-full rounded-md border bg-card shadow max-h-60 overflow-auto">
 											{gameSuggestions.map((g) => (
-												<button key={g.app_id} className="block w-full text-left px-3 py-2 hover:bg-accent" onClick={() => { setSelectedGame(g); setGameQuery(`${g.name} (${g.app_id})`); setGameSuggestions([]); }}>
+												<button key={g.app_id} className="block w-full text-left px-3 py-2 hover:bg-accent" onClick={() => { setSelectedGame(g); setSelectedGameAppId(g.app_id); setGameQuery(`${g.name} (${g.app_id})`); setGameSuggestions([]); }}>
 													<div className="text-sm font-medium">{g.name}</div>
 													<div className="text-xs text-muted-foreground">AppID: {g.app_id}</div>
 												</button>
@@ -1053,6 +1161,22 @@ export const Analysis: React.FC = () => {
  					</Card>
  				</Collapsible>
  			)}
+
+ 			{/* Live analysis results preview */}
+				{analysisResults.length > 0 && (
+					<div className="mt-6">
+						<Card title="Analysis Results Preview">
+							<div className="space-y-2 max-h-80 overflow-auto p-2">
+								{analysisResults.map((r) => (
+									<div key={r.id} className="border-b border-border py-2">
+										<div className="text-sm font-medium">Result #{r.id} — {r.status}</div>
+										<div className="text-xs text-muted-foreground truncate">{r.analysed_review || r.analysis_output || r.review_text_snapshot}</div>
+									</div>
+								))}
+							</div>
+						</Card>
+					</div>
+				)}
 
  		</div>
  	);

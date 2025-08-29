@@ -137,7 +137,8 @@ def _run_analysis_job(job_id: int, payload: dict):
 
         # create analysis_result rows
         for r in reviews:
-            ar = crud.create_analysis_result(db, type("R", (), {"job_id": job.id, "app_id": r.app_id, "game_name": getattr(r, "game_name", None), "review_id": r.review_id, "review_text_snapshot": r.review_text, "llm_provider": provider_name, "model": payload.get("model", "gpt-5"), "reasoning_effort": payload.get("reasoning", {}).get("effort") if payload.get("reasoning") else None, "prompt_used": prompt_text}))
+            # ensure we pass game_name=None so CRUD will populate from Game table when possible
+            ar = crud.create_analysis_result(db, type("R", (), {"job_id": job.id, "app_id": r.app_id, "game_name": None, "review_id": r.review_id, "review_text_snapshot": r.review_text, "llm_provider": provider_name, "model": payload.get("model", "gpt-5"), "reasoning_effort": payload.get("reasoning", {}).get("effort") if payload.get("reasoning") else None, "prompt_used": prompt_text}))
         # set total_reviews on the job so UI can display progress
         try:
             job.total_reviews = len(reviews)

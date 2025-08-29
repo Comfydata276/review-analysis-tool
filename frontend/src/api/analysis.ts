@@ -90,6 +90,17 @@ export async function getJobResults(jobId: number): Promise<any[]> {
   return resp.json();
 }
 
+export async function listAnalysisResults(appId?: number, limit = 100, offset = 0): Promise<any[]> {
+  const BACKEND_URL = (import.meta as any).env.VITE_BACKEND_URL || "http://127.0.0.1:8000";
+  const params = new URLSearchParams();
+  if (appId !== undefined && appId !== null) params.set("app_id", String(appId));
+  params.set("limit", String(limit));
+  params.set("offset", String(offset));
+  const resp = await fetch(`${BACKEND_URL}/analysis/results?${params.toString()}`);
+  if (!resp.ok) throw new Error(await resp.text());
+  return resp.json();
+}
+
 // API key management
 export interface ApiKeyCreatePayload {
   provider: string;
