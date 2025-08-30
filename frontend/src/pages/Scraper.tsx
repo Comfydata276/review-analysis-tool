@@ -107,6 +107,37 @@ export const Scraper: React.FC = () => {
 		Record<number, Partial<ScraperSettings["global_settings"]> & { enabled?: boolean }>
 	>({});
 
+	// small helper: block non-numeric key input and show toast
+	function handleNumericKeyDown(e: React.KeyboardEvent<HTMLInputElement>, message = "Only numeric characters allowed") {
+		// allow editing/navigation keys and modifier combos
+		const allowedKeys = [
+			"Backspace",
+			"Tab",
+			"ArrowLeft",
+			"ArrowRight",
+			"Delete",
+			"Home",
+			"End",
+		];
+		if (allowedKeys.includes((e as any).key)) return;
+		if (e.ctrlKey || e.metaKey) return; // allow copy/paste etc
+		// digits only
+		if (/^\d$/.test((e as any).key)) return;
+		// block anything else and notify
+		e.preventDefault();
+		notifications.error(message);
+	}
+
+	function handleNumericPaste(e: React.ClipboardEvent<HTMLInputElement>, message = "Only numeric content allowed") {
+		const text = e.clipboardData.getData('Text') || '';
+		if (text === '') return;
+		// allow only digits
+		if (!/^\d+$/.test(text)) {
+			e.preventDefault();
+			notifications.error(message);
+		}
+	}
+
 	// used to skip autosave while initial settings are loading
 	const skipSaveRef = useRef(true);
 
@@ -215,6 +246,25 @@ export const Scraper: React.FC = () => {
 
 	// Debounced autosave to server (also keeps localStorage via existing effects)
 	const saveTimerRef = useRef<number | null>(null);
+
+	// Explicit save used for user-triggered saves (onBlur, run, unmount)
+	const lastSavedToastRef = useRef<number | null>(null);
+	const saveSettingsNow = useCallback(async (showToast = false) => {
+		try {
+			await saveScraperSettings({ global_settings: globalSettings, per_game_overrides: perGameOverrides });
+			if (showToast) {
+				const now = Date.now();
+				if (!lastSavedToastRef.current || now - lastSavedToastRef.current > 3000) {
+					notifications.success("Settings saved");
+					lastSavedToastRef.current = now;
+				}
+			}
+		} catch (e: any) {
+			console.error('Failed to save settings', e);
+			notifications.error("Unable to save settings. Please check your connection and try again.");
+		}
+	}, [globalSettings, perGameOverrides]);
+
 	useEffect(() => {
 		// skip autosave during initial load
 		if (skipSaveRef.current) return;
@@ -407,6 +457,8 @@ export const Scraper: React.FC = () => {
 
 	const handleStart = useCallback(async () => {
 		try {
+			// save current settings before starting (show toast)
+			await saveSettingsNow(true);
 			setError(null);
 			const payload: ScraperSettings = {
 				global_settings: globalSettings,
@@ -414,7 +466,7 @@ export const Scraper: React.FC = () => {
 					Object.entries(perGameOverrides)
 						.filter(([_, v]) => (v as any)?.enabled)
 						.map(([k, v]) => [Number(k), { ...v, enabled: undefined }])
-				),
+					),
 			};
 			await startScraper(payload);
 			setRunning(true);
@@ -603,6 +655,39 @@ export const Scraper: React.FC = () => {
 		prevRunningRef.current = running;
 	}, [running, selectedExportGame]);
 
+	// Save settings on unmount or page unload
+	useEffect(() => {
+		const onBeforeUnload = (e: BeforeUnloadEvent) => {
+			// attempt to save (no await)
+			saveSettingsNow(false);
+			// allow unload
+		};
+		window.addEventListener('beforeunload', onBeforeUnload);
+		return () => {
+			window.removeEventListener('beforeunload', onBeforeUnload);
+			// try to save on unmount
+			saveSettingsNow(false);
+		};
+	}, [saveSettingsNow]);
+
+	// Schedule save on blur with a small delay to avoid rapid toasts
+	const blurSaveTimerRef = useRef<number | null>(null);
+	function scheduleSaveOnBlur() {
+		if (blurSaveTimerRef.current) {
+			window.clearTimeout(blurSaveTimerRef.current);
+		}
+		blurSaveTimerRef.current = window.setTimeout(() => {
+			saveSettingsNow(true);
+			blurSaveTimerRef.current = null;
+		}, 500);
+	}
+
+	useEffect(() => {
+		return () => {
+			if (blurSaveTimerRef.current) window.clearTimeout(blurSaveTimerRef.current);
+		};
+	}, []);
+
 	return (
 		<div className="space-y-6 p-0" data-testid="scraper-page">
 
@@ -746,7 +831,7 @@ export const Scraper: React.FC = () => {
 						</div>
 					</CollapsibleTrigger>
 					<CollapsibleContent>
-						<div className="p-4">
+						<div className="p-4" onBlur={scheduleSaveOnBlur}>
 							<div className="flex justify-end mb-4">
 								<Button variant="outline" onClick={() => resetSettings()} size="sm">Reset to defaults</Button>
 							</div>
@@ -776,13 +861,25 @@ export const Scraper: React.FC = () => {
 									const v = e.target.value;
 									if (v === "") {
 										setGlobalSettings((s) => ({ ...s, max_reviews: undefined }));
-									} else {
-										const cleaned = v.replace(/^0+(\d)/, "$1");
-										setGlobalSettings((s) => ({ ...s, max_reviews: Number(cleaned) }));
+										return;
 									}
+									// Only allow digits (integer). No letters or special chars.
+									if (!/^\d+$/.test(v)) {
+										notifications.error("Max Reviews per Game must be an integer or empty and cannot contain letters/symbols.");
+										return;
+									}
+									const n = Number(v);
+									if (isNaN(n) || n < 0) {
+										notifications.error("Max Reviews per Game cannot be negative.");
+										return;
+									}
+									setGlobalSettings((s) => ({ ...s, max_reviews: n }));
 								}}
+								onBlur={saveSettingsNow}
 								disabled={running || !!globalSettings.complete_scraping}
 								data-testid="max-reviews"
+								onKeyDown={(e) => handleNumericKeyDown(e, "Max Reviews must be a positive integer.")}
+								onPaste={(e) => handleNumericPaste(e, "Max Reviews must be a positive integer.")}
 							/>
 								</FormField>
 
@@ -812,15 +909,27 @@ export const Scraper: React.FC = () => {
 								value={globalSettings.rate_limit_rpm ?? ""}
 								onChange={(e) => {
 									const v = e.target.value;
+									// Rate Limit cannot be empty, must be a positive integer > 0
 									if (v === "") {
-										setGlobalSettings((s) => ({ ...s, rate_limit_rpm: undefined }));
-									} else {
-										const cleaned = v.replace(/^0+(\d)/, "$1");
-										setGlobalSettings((s) => ({ ...s, rate_limit_rpm: Number(cleaned) }));
+										notifications.error("Rate Limit is required and must be a positive integer.");
+										return;
 									}
+									if (!/^\d+$/.test(v)) {
+										notifications.error("Rate Limit must be a positive integer (no letters or special characters).");
+										return;
+									}
+									const n = Number(v);
+									if (isNaN(n) || n <= 0) {
+										notifications.error("Rate Limit must be greater than zero.");
+										return;
+									}
+									setGlobalSettings((s) => ({ ...s, rate_limit_rpm: n }));
 								}}
+								onBlur={saveSettingsNow}
 								disabled={running}
 								data-testid="rate-limit"
+								onKeyDown={(e) => handleNumericKeyDown(e, "Rate Limit must be a positive integer.")}
+								onPaste={(e) => handleNumericPaste(e, "Rate Limit must be a positive integer.")}
 							/>
 								</FormField>
 							</FormGrid>
@@ -844,6 +953,7 @@ export const Scraper: React.FC = () => {
 										]}
 										value={globalSettings.language}
 										onChange={(e) => setGlobalSettings((s) => ({ ...s, language: e.target.value }))}
+										onBlur={saveSettingsNow}
 										disabled={running}
 										data-testid="language"
 									/>
@@ -854,6 +964,7 @@ export const Scraper: React.FC = () => {
 										type="date"
 										value={globalSettings.start_date || ""}
 										onChange={(e) => setGlobalSettings((s) => ({ ...s, start_date: e.target.value || undefined }))}
+										onBlur={saveSettingsNow}
 										disabled={running}
 										data-testid="start-date"
 									/>
@@ -864,6 +975,7 @@ export const Scraper: React.FC = () => {
 										type="date"
 										value={globalSettings.end_date || ""}
 										onChange={(e) => setGlobalSettings((s) => ({ ...s, end_date: e.target.value || undefined }))}
+										onBlur={saveSettingsNow}
 										disabled={running}
 										data-testid="end-date"
 									/>
@@ -876,11 +988,30 @@ export const Scraper: React.FC = () => {
 									<Input
 										type="number"
 										min="0"
-										step="0.1"
+										step="1"
 										value={globalSettings.min_playtime ?? ""}
-										onChange={(e) => setGlobalSettings((s) => ({ ...s, min_playtime: e.target.value === "" ? undefined : Number(e.target.value) }))}
+										onChange={(e) => {
+											const v = e.target.value;
+											if (v === "") {
+												setGlobalSettings((s) => ({ ...s, min_playtime: undefined }));
+												return;
+											}
+											if (!/^\d+$/.test(v)) {
+												notifications.error("Min playtime must be an integer or empty and cannot contain letters/symbols.");
+												return;
+											}
+											const n = Number(v);
+											if (isNaN(n) || n < 0) {
+												notifications.error("Min playtime cannot be negative.");
+												return;
+											}
+											setGlobalSettings((s) => ({ ...s, min_playtime: n }));
+										}}
+										onBlur={saveSettingsNow}
 										disabled={running}
 										data-testid="min-playtime"
+										onKeyDown={(e) => handleNumericKeyDown(e, "Min playtime must be a positive integer.")}
+										onPaste={(e) => handleNumericPaste(e, "Min playtime must be a positive integer.")}
 									/>
 								</FormField>
 
@@ -888,13 +1019,32 @@ export const Scraper: React.FC = () => {
 								<Input
 									type="number"
 									min="0"
-									step="0.1"
+									step="1"
 									value={globalSettings.max_playtime ?? ""}
-									onChange={(e) => setGlobalSettings((s) => ({ ...s, max_playtime: e.target.value === "" ? undefined : Number(e.target.value) }))}
+									onChange={(e) => {
+										const v = e.target.value;
+										if (v === "") {
+											setGlobalSettings((s) => ({ ...s, max_playtime: undefined }));
+											return;
+										}
+										if (!/^\d+$/.test(v)) {
+											notifications.error("Max playtime must be an integer or empty and cannot contain letters/symbols.");
+											return;
+										}
+										const n = Number(v);
+										if (isNaN(n) || n < 0) {
+											notifications.error("Max playtime cannot be negative.");
+											return;
+										}
+										setGlobalSettings((s) => ({ ...s, max_playtime: n }));
+									}}
+									onBlur={saveSettingsNow}
 									disabled={running}
 									data-testid="max-playtime"
 									error={!!playtimeError}
 									aria-invalid={!!playtimeError}
+									onKeyDown={(e) => handleNumericKeyDown(e, "Max playtime must be a positive integer.")}
+									onPaste={(e) => handleNumericPaste(e, "Max playtime must be a positive integer.")}
 								/>
 							</FormField>
 
@@ -907,6 +1057,7 @@ export const Scraper: React.FC = () => {
 										]}
 										value={globalSettings.early_access}
 										onChange={(e) => setGlobalSettings((s) => ({ ...s, early_access: e.target.value as any }))}
+										onBlur={saveSettingsNow}
 										disabled={running}
 										data-testid="early-access"
 									/>
@@ -924,6 +1075,7 @@ export const Scraper: React.FC = () => {
 										]}
 										value={globalSettings.received_for_free}
 										onChange={(e) => setGlobalSettings((s) => ({ ...s, received_for_free: e.target.value as any }))}
+										onBlur={saveSettingsNow}
 										disabled={running}
 										data-testid="received-for-free"
 									/>
@@ -997,7 +1149,10 @@ export const Scraper: React.FC = () => {
 															setPerGameOverrides((s) => ({ ...s, [game.app_id]: { ...override, max_reviews: Number(cleaned), enabled } }));
 														}
 													}}
+													onBlur={saveSettingsNow}
 													disabled={running}
+													onKeyDown={(e) => handleNumericKeyDown(e, "Max Reviews must be a positive integer.")}
+													onPaste={(e) => handleNumericPaste(e, "Max Reviews must be a positive integer.")}
 												/>
 											</FormField>
 
@@ -1024,13 +1179,24 @@ export const Scraper: React.FC = () => {
 													onChange={(e) => {
 														const v = e.target.value;
 														if (v === "") {
-															setPerGameOverrides((s) => ({ ...s, [game.app_id]: { ...override, rate_limit_rpm: undefined, enabled } }));
-														} else {
-															const cleaned = v.replace(/^0+(\d)/, "$1");
-															setPerGameOverrides((s) => ({ ...s, [game.app_id]: { ...override, rate_limit_rpm: Number(cleaned), enabled } }));
+															notifications.error("Rate Limit is required and must be a positive integer.");
+															return;
 														}
+														if (!/^\d+$/.test(v)) {
+															notifications.error("Rate Limit must be a positive integer (no letters or special characters).");
+															return;
+														}
+														const n = Number(v);
+														if (isNaN(n) || n <= 0) {
+															notifications.error("Rate Limit must be greater than zero.");
+															return;
+														}
+														setPerGameOverrides((s) => ({ ...s, [game.app_id]: { ...override, rate_limit_rpm: n, enabled } }));
 													}}
+													onBlur={saveSettingsNow}
 													disabled={running}
+													onKeyDown={(e) => handleNumericKeyDown(e, "Rate Limit must be a positive integer.")}
+													onPaste={(e) => handleNumericPaste(e, "Rate Limit must be a positive integer.")}
 												/>
 												</FormField>
 											</FormGrid>
@@ -1049,6 +1215,7 @@ export const Scraper: React.FC = () => {
 															]}
 														value={override.language ?? globalSettings.language}
 														onChange={(e) => setPerGameOverrides((s) => ({ ...s, [game.app_id]: { ...override, language: e.target.value, enabled } }))}
+														onBlur={saveSettingsNow}
 														disabled={running}
 														data-testid={`override-language-${game.app_id}`}
 													/>
@@ -1059,7 +1226,7 @@ export const Scraper: React.FC = () => {
 															type="date"
 															value={override.start_date ?? ""}
 															onChange={(e) => setPerGameOverrides((s) => ({ ...s, [game.app_id]: { ...override, start_date: e.target.value || undefined, enabled } }))}
-															disabled={running}
+															onBlur={saveSettingsNow}
 														data-testid={`override-start-${game.app_id}`}
 													/>
 													</FormField>
@@ -1069,7 +1236,7 @@ export const Scraper: React.FC = () => {
 															type="date"
 															value={override.end_date ?? ""}
 															onChange={(e) => setPerGameOverrides((s) => ({ ...s, [game.app_id]: { ...override, end_date: e.target.value || undefined, enabled } }))}
-															disabled={running}
+															onBlur={saveSettingsNow}
 														data-testid={`override-end-${game.app_id}`}
 													/>
 													</FormField>
@@ -1081,11 +1248,30 @@ export const Scraper: React.FC = () => {
 														<Input
 															type="number"
 															min="0"
-															step="0.1"
+															step="1"
 															value={override.min_playtime ?? globalSettings.min_playtime ?? ""}
-															onChange={(e) => setPerGameOverrides((s) => ({ ...s, [game.app_id]: { ...override, min_playtime: e.target.value === "" ? undefined : Number(e.target.value), enabled } }))}
+															onChange={(e) => {
+																const v = e.target.value;
+																if (v === "") {
+																	setPerGameOverrides((s) => ({ ...s, [game.app_id]: { ...override, min_playtime: undefined, enabled } }));
+																	return;
+																}
+																if (!/^\d+$/.test(v)) {
+																	notifications.error("Min playtime must be an integer or empty and cannot contain letters/symbols.");
+																	return;
+																}
+																const n = Number(v);
+																if (isNaN(n) || n < 0) {
+																	notifications.error("Min playtime cannot be negative.");
+																	return;
+																}
+																setPerGameOverrides((s) => ({ ...s, [game.app_id]: { ...override, min_playtime: n, enabled } }));
+															}}
+															onBlur={saveSettingsNow}
 															disabled={running}
 															data-testid={`override-min-playtime-${game.app_id}`}
+															onKeyDown={(e) => handleNumericKeyDown(e, "Min playtime must be a positive integer.")}
+															onPaste={(e) => handleNumericPaste(e, "Min playtime must be a positive integer.")}
 															/>
 													</FormField>
 
@@ -1100,13 +1286,32 @@ export const Scraper: React.FC = () => {
 																	<Input
 																		type="number"
 																		min="0"
-																		step="0.1"
+																		step="1"
 																		value={override.max_playtime ?? globalSettings.max_playtime ?? ""}
-																		onChange={(e) => setPerGameOverrides((s) => ({ ...s, [game.app_id]: { ...override, max_playtime: e.target.value === "" ? undefined : Number(e.target.value), enabled } }))}
+																		onChange={(e) => {
+																			const v = e.target.value;
+																			if (v === "") {
+																				setPerGameOverrides((s) => ({ ...s, [game.app_id]: { ...override, max_playtime: undefined, enabled } }));
+																				return;
+																			}
+																			if (!/^\d+$/.test(v)) {
+																				notifications.error("Max playtime must be an integer or empty and cannot contain letters/symbols.");
+																				return;
+																			}
+																			const n = Number(v);
+																			if (isNaN(n) || n < 0) {
+																				notifications.error("Max playtime cannot be negative.");
+																				return;
+																			}
+																			setPerGameOverrides((s) => ({ ...s, [game.app_id]: { ...override, max_playtime: n, enabled } }));
+																		}}
+																		onBlur={saveSettingsNow}
 																		disabled={running}
 																		data-testid={`override-max-playtime-${game.app_id}`}
 																		error={!!overridePlaytimeError}
 																		aria-invalid={!!overridePlaytimeError}
+																		onKeyDown={(e) => handleNumericKeyDown(e, "Max playtime must be a positive integer.")}
+																		onPaste={(e) => handleNumericPaste(e, "Max playtime must be a positive integer.")}
 																	/>
 																</FormField>
 																<FormField label="Early Access" description="Include early access games">
@@ -1118,6 +1323,7 @@ export const Scraper: React.FC = () => {
 																		]}
 																		value={override.early_access ?? globalSettings.early_access}
 																		onChange={(e) => setPerGameOverrides((s) => ({ ...s, [game.app_id]: { ...override, early_access: e.target.value as any, enabled } }))}
+																		onBlur={saveSettingsNow}
 																		disabled={running}
 																		data-testid={`override-early-${game.app_id}`}
 																	/>
@@ -1138,6 +1344,7 @@ export const Scraper: React.FC = () => {
 																]}
 															value={override.received_for_free ?? globalSettings.received_for_free}
 														onChange={(e) => setPerGameOverrides((s) => ({ ...s, [game.app_id]: { ...override, received_for_free: e.target.value as any, enabled } }))}
+														onBlur={saveSettingsNow}
 														disabled={running}
 														data-testid={`override-free-${game.app_id}`}
 													/>

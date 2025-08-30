@@ -144,9 +144,91 @@ export const Analysis: React.FC = () => {
  		Record<number, Partial<any> & { enabled?: boolean }>
  	>({});
  
+ 	// small helper: block non-numeric key input and show toast
+ 	function handleNumericKeyDown(e: React.KeyboardEvent<HTMLInputElement>, message = "Only numeric characters allowed") {
+ 		// allow editing/navigation keys and modifier combos
+ 		const allowedKeys = [
+ 			"Backspace",
+ 			"Tab",
+ 			"ArrowLeft",
+ 			"ArrowRight",
+ 			"Delete",
+ 			"Home",
+ 			"End",
+ 		];
+ 		if (allowedKeys.includes((e as any).key)) return;
+ 		if (e.ctrlKey || e.metaKey) return; // allow copy/paste etc
+ 		// digits only
+ 		if (/^\d$/.test((e as any).key)) return;
+ 		// block anything else and notify
+ 		e.preventDefault();
+ 		notifications.error(message);
+ 	}
+
+ 	function handleNumericPaste(e: React.ClipboardEvent<HTMLInputElement>, message = "Only numeric content allowed") {
+ 		const text = e.clipboardData.getData('Text') || '';
+ 		if (text === '') return;
+ 		// allow only digits
+ 		if (!/^\d+$/.test(text)) {
+ 			e.preventDefault();
+ 			notifications.error(message);
+ 		}
+ 	}
+
  	// used to skip autosave while initial settings are loading
  	const skipSaveRef = useRef(true);
  	const saveTimerRef = useRef<number | null>(null);
+
+ 	// Explicit save used for user-triggered saves (onBlur, run, unmount)
+ 	const lastSavedToastRef = useRef<number | null>(null);
+ 	const saveSettingsNow = useCallback(async (showToast = false) => {
+    try {
+      await saveAnalysisSettings({ global_settings: globalSettings, per_game_overrides: perGameOverrides, ui: { settingsTab, configurationOpen, exportOpen, selectedExportGame, gameQuery, selectedGameAppId } });
+      if (showToast) {
+        const now = Date.now();
+        if (!lastSavedToastRef.current || now - lastSavedToastRef.current > 3000) {
+          notifications.success("Settings saved");
+          lastSavedToastRef.current = now;
+        }
+      }
+    } catch (e: any) {
+      console.error('Failed to save analysis settings', e);
+      notifications.error("Unable to save settings. Please check your connection and try again.");
+    }
+  }, [globalSettings, perGameOverrides, settingsTab, configurationOpen, exportOpen, selectedExportGame, gameQuery, selectedGameAppId]);
+
+ 	// Schedule save on blur with a small delay to avoid rapid toasts
+ 	const blurSaveTimerRef = useRef<number | null>(null);
+ 	function scheduleSaveOnBlur() {
+    if (blurSaveTimerRef.current) {
+      window.clearTimeout(blurSaveTimerRef.current);
+    }
+    blurSaveTimerRef.current = window.setTimeout(() => {
+      saveSettingsNow(true);
+      blurSaveTimerRef.current = null;
+    }, 500);
+ 	}
+
+ 	useEffect(() => {
+    return () => {
+      if (blurSaveTimerRef.current) window.clearTimeout(blurSaveTimerRef.current);
+    };
+  }, []);
+
+ 	// Save settings on unmount or page unload
+ 	useEffect(() => {
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      // attempt to save (no await)
+      saveSettingsNow(false);
+      // allow unload
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', onBeforeUnload);
+      // try to save on unmount
+      saveSettingsNow(false);
+    };
+  }, [saveSettingsNow]);
  
  	// Load persisted settings from server (preferred) then localStorage fallback
  	useEffect(() => {
@@ -453,6 +535,9 @@ useEffect(() => {
 				}
 			}
 		}
+
+		// save current settings before starting (show toast)
+		await saveSettingsNow(true);
 
 		// build list of provider/model pairs in configured order
 		const runs: Array<{ provider: string; model: string; reasoning?: string }> = [];
@@ -825,7 +910,7 @@ useEffect(() => {
  						</div>
  					</CollapsibleTrigger>
  					<CollapsibleContent>
- 						<div className="p-4">
+ 						<div className="p-4" onBlur={scheduleSaveOnBlur}>
  							<Tabs value={settingsTab} onValueChange={setSettingsTab}>
  							<TabsContent value="global" className="space-y-6">
  								<FormSection 
@@ -881,48 +966,99 @@ useEffect(() => {
 								<Input
 									value={globalSettings.max_reviews ?? ""}
 									onChange={(e) => {
-									const v = e.target.value;
-									if (v === "") {
-										setGlobalSettings((s: any) => ({ ...s, max_reviews: undefined }));
-									} else {
-										const cleaned = v.replace(/^0+(\d)/, "$1");
-										setGlobalSettings((s: any) => ({ ...s, max_reviews: Number(cleaned) }));
-									}
-								}}
-								data-testid="max-reviews"
-								disabled={!!globalSettings.complete_scraping}
-								/>
-							</FormField>
+								const v = e.target.value;
+								if (v === "") {
+									setGlobalSettings((s: any) => ({ ...s, max_reviews: undefined }));
+									return;
+								}
+								if (!/^\d+$/.test(v)) {
+									notifications.error("Max Reviews must be an integer or empty and cannot contain letters/symbols.");
+									return;
+								}
+								const n = Number(v);
+								if (isNaN(n) || n < 0) {
+									notifications.error("Max Reviews cannot be negative.");
+									return;
+								}
+								setGlobalSettings((s: any) => ({ ...s, max_reviews: n }));
+							}}
+							data-testid="max-reviews"
+							disabled={!!globalSettings.complete_scraping}
+							onKeyDown={(e) => handleNumericKeyDown(e, "Max Reviews must be an integer.")}
+							onPaste={(e) => handleNumericPaste(e, "Max Reviews must be an integer.")}
+							/>
+					</FormField>
 
-							<FormField label="Complete Analysis" description="When enabled, analyse all available reviews and disable Max Reviews per Game">
-								<div>
-									<Button
-										variant={globalSettings.complete_scraping ? "gradient" : "outline"}
-										size="md"
-										onClick={() => setGlobalSettings((s: any) => ({ ...s, complete_scraping: !s.complete_scraping }))}
-										aria-pressed={!!globalSettings.complete_scraping}
-										className="w-full h-10"
-									>
-										{globalSettings.complete_scraping ? "Disable complete analysis" : "Enable complete analysis"}
-									</Button>
-								</div>
-							</FormField>
+					<FormField label="Complete Analysis" description="When enabled, analyse all available reviews and disable Max Reviews per Game">
+						<div>
+							<Button
+								variant={globalSettings.complete_scraping ? "gradient" : "outline"}
+								size="md"
+								onClick={() => setGlobalSettings((s: any) => ({ ...s, complete_scraping: !s.complete_scraping }))}
+								aria-pressed={!!globalSettings.complete_scraping}
+								className="w-full h-10"
+							>
+								{globalSettings.complete_scraping ? "Disable complete analysis" : "Enable complete analysis"}
+							</Button>
+						</div>
+					</FormField>
 
-							<FormField label="Reviews Per Batch" description="Number of reviews per batch" required>
-								<Input
-									type="number"
-									min="1"
-									value={globalSettings.reviews_per_batch}
-									onChange={(e) => setGlobalSettings((s: any) => ({ ...s, reviews_per_batch: Number(e.target.value) }))}
-									data-testid="reviews-per-batch"
-								/>
-							</FormField>
-						</FormGrid>
+					<FormField label="Reviews Per Batch" description="Number of reviews per batch" required>
+						<Input
+							type="number"
+							min="1"
+							value={globalSettings.reviews_per_batch}
+							onChange={(e) => {
+								const v = e.target.value;
+								if (v === "") {
+									notifications.error("Reviews per batch is required and must be a positive integer.");
+									return;
+								}
+								if (!/^\d+$/.test(v)) {
+									notifications.error("Reviews per batch must be a positive integer (no letters or special characters).");
+									return;
+								}
+								const n = Number(v);
+								if (isNaN(n) || n <= 0) {
+									notifications.error("Reviews per batch must be greater than zero.");
+									return;
+								}
+								setGlobalSettings((s: any) => ({ ...s, reviews_per_batch: n }));
+							}}
+							data-testid="reviews-per-batch"
+							onKeyDown={(e) => handleNumericKeyDown(e, "Reviews per batch must be a positive integer.")}
+							onPaste={(e) => handleNumericPaste(e, "Reviews per batch must be a positive integer.")}
+						/>
+					</FormField>
+				</FormGrid>
 
  						{/* Batches Per Request row (single-column width) */}
  						<FormGrid cols={3}>
  							<FormField label="Batches Per Request" description="Number of batches per request">
- 								<Input type="number" min="1" value={globalSettings.batches_per_request} onChange={(e) => setGlobalSettings((s: any) => ({ ...s, batches_per_request: Number(e.target.value) }))} />
+ 								<Input
+ 									type="number"
+ 									min="1"
+ 									value={globalSettings.batches_per_request}
+ 									onChange={(e) => {
+ 										const v = e.target.value;
+ 										if (v === "") {
+ 											notifications.error("Batches per request is required and must be a positive integer.");
+ 											return;
+ 										}
+ 										if (!/^\d+$/.test(v)) {
+ 											notifications.error("Batches per request must be a positive integer (no letters or special characters).");
+ 											return;
+ 										}
+ 										const n = Number(v);
+ 										if (isNaN(n) || n <= 0) {
+ 											notifications.error("Batches per request must be greater than zero.");
+ 											return;
+ 										}
+ 										setGlobalSettings((s: any) => ({ ...s, batches_per_request: n }));
+ 									}}
+ 									onKeyDown={(e) => handleNumericKeyDown(e, "Batches per request must be a positive integer.")}
+ 									onPaste={(e) => handleNumericPaste(e, "Batches per request must be a positive integer.")}
+ 								/>
  							</FormField>
  							<div />
  							<div />
@@ -979,11 +1115,29 @@ useEffect(() => {
  											<Input
  												type="number"
  												min="0"
- 												step="0.1"
+ 												step="1"
  												value={globalSettings.min_playtime ?? ""}
- 												onChange={(e) => setGlobalSettings((s: any) => ({ ...s, min_playtime: e.target.value === "" ? undefined : Number(e.target.value) }))}
+ 												onChange={(e) => {
+ 													const v = e.target.value;
+ 													if (v === "") {
+ 														setGlobalSettings((s: any) => ({ ...s, min_playtime: undefined }));
+ 														return;
+ 													}
+ 													if (!/^\d+$/.test(v)) {
+ 														notifications.error("Min playtime must be an integer or empty and cannot contain letters/symbols.");
+ 														return;
+ 													}
+ 													const n = Number(v);
+ 													if (isNaN(n) || n < 0) {
+ 														notifications.error("Min playtime cannot be negative.");
+ 														return;
+ 													}
+ 													setGlobalSettings((s: any) => ({ ...s, min_playtime: n }));
+ 												}}
  												disabled={false}
  												data-testid="min-playtime"
+ 												onKeyDown={(e) => handleNumericKeyDown(e, "Min playtime must be an integer or empty.")}
+ 												onPaste={(e) => handleNumericPaste(e, "Min playtime must be an integer or empty.")}
  											/>
  										</FormField>
 
@@ -991,13 +1145,31 @@ useEffect(() => {
  											<Input
  												type="number"
  												min="0"
- 												step="0.1"
+ 												step="1"
  												value={globalSettings.max_playtime ?? ""}
- 												onChange={(e) => setGlobalSettings((s: any) => ({ ...s, max_playtime: e.target.value === "" ? undefined : Number(e.target.value) }))}
+ 												onChange={(e) => {
+ 													const v = e.target.value;
+ 													if (v === "") {
+ 														setGlobalSettings((s: any) => ({ ...s, max_playtime: undefined }));
+ 														return;
+ 													}
+ 													if (!/^\d+$/.test(v)) {
+ 														notifications.error("Max playtime must be an integer or empty and cannot contain letters/symbols.");
+ 														return;
+ 													}
+ 													const n = Number(v);
+ 													if (isNaN(n) || n < 0) {
+ 														notifications.error("Max playtime cannot be negative.");
+ 														return;
+ 													}
+ 													setGlobalSettings((s: any) => ({ ...s, max_playtime: n }));
+ 												}}
  												disabled={false}
  												data-testid="max-playtime"
  												error={!!playtimeError}
  												aria-invalid={!!playtimeError}
+ 												onKeyDown={(e) => handleNumericKeyDown(e, "Max playtime must be an integer or empty.")}
+ 												onPaste={(e) => handleNumericPaste(e, "Max playtime must be an integer or empty.")}
  											/>
  										</FormField>
 
