@@ -4,7 +4,7 @@ import { Card } from "../components/ui/Card";
 import { Input } from "../components/ui/Input";
 import { Select } from "../components/ui/Select";
 import { Button } from "../components/ui/Button";
-import toast from "react-hot-toast";
+import { notifications } from "../utils/notifications";
 
 export const AnalysisResults: React.FC = () => {
   const [appId, setAppId] = useState<number | undefined>(undefined);
@@ -20,9 +20,9 @@ export const AnalysisResults: React.FC = () => {
     const text = r.analysed_review || r.analysis_output || r.review_text_snapshot || "";
     try {
       navigator.clipboard.writeText(text);
-      toast.success("Copied to clipboard");
+      notifications.success("Copied to clipboard");
     } catch (e) {
-      toast.error("Copy failed");
+      notifications.error("Unable to copy to clipboard. Please try selecting and copying manually.");
     }
   }
 
@@ -33,12 +33,12 @@ export const AnalysisResults: React.FC = () => {
       window.open(url, "_blank");
       return;
     }
-    toast.error("No original review link available");
+    notifications.error("Unable to open review link. Review data may be incomplete.");
   }
 
   function exportCsv(rows: any[]) {
     if (!rows || rows.length === 0) {
-      toast.error("No rows to export");
+      notifications.error("No data available to export. Please run analysis first.");
       return;
     }
     const headers = ["id", "job_id", "app_id", "game_name", "review_id", "status", "analysed_review"];
@@ -71,7 +71,7 @@ export const AnalysisResults: React.FC = () => {
         const filtered = res && statusFilter ? res.filter((r: any) => r.status === statusFilter) : res;
         if (!cancelled) setResults(filtered || []);
       } catch (e: any) {
-        toast.error(e.message || "Failed to load results");
+        notifications.error(e.message || "Unable to load analysis results. Please try again.");
       } finally {
         if (!cancelled) setLoading(false);
       }

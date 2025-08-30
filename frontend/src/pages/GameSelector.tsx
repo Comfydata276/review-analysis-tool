@@ -6,7 +6,7 @@ import { Game, GameSearchResponse } from "../types";
 import { addActiveGame, getActiveGames, removeActiveGame, searchGames, getBackfillStatus, startBackfill, getAppListStats } from "../api/games";
 import { Card } from "../components/ui/Card";
 import { RadialProgress } from "../components/ui/RadialProgress";
-import toast from "react-hot-toast";
+import { notifications } from "../utils/notifications";
 import { ArrowPathIcon } from "@heroicons/react/24/outline";
 import { Button } from "../components/ui/Button";
 import { ConfirmModal } from "../components/ConfirmModal";
@@ -42,7 +42,7 @@ export const GameSelector: React.FC = () => {
     } catch (e: any) {
       const msg = e.message || "Failed to load active games";
       setError(msg);
-      toast.error(msg);
+      notifications.error(msg);
     } finally {
       setLoadingActive(false);
     }
@@ -114,7 +114,7 @@ export const GameSelector: React.FC = () => {
       setError(msg);
       setSearchResults([]);
       setHasMore(false);
-      toast.error(msg);
+      notifications.error(msg);
     } finally {
       setLoadingSearch(false);
     }
@@ -141,11 +141,11 @@ export const GameSelector: React.FC = () => {
       const updated = await getActiveGames();
       setActiveGames(updated);
       setLastRefreshed(Date.now());
-      toast.success(`Added ${game.name}`);
+      notifications.success(`Added ${game.name}`);
     } catch (e: any) {
       const msg = e.message || "Failed to add game";
       setError(msg);
-      toast.error(msg);
+      notifications.error(msg);
     }
   }, []);
 
@@ -155,11 +155,11 @@ export const GameSelector: React.FC = () => {
       const updated = await getActiveGames();
       setActiveGames(updated);
       setLastRefreshed(Date.now());
-      toast.success(`Removed ${selectedIds.length} ${selectedIds.length === 1 ? "game" : "games"}`);
+      notifications.success(`Removed ${selectedIds.length} ${selectedIds.length === 1 ? "game" : "games"}`);
     } catch (e: any) {
       const msg = e.message || "Failed to remove games";
       setError(msg);
-      toast.error(msg);
+      notifications.error(msg);
     }
   }, []);
 
@@ -238,9 +238,9 @@ export const GameSelector: React.FC = () => {
           onConfirm={async () => {
             try {
               await startBackfill();
-              toast.success("App list update started");
+              notifications.success("App list update started");
             } catch (e: any) {
-              toast.error(e?.message || "Failed to start backfill");
+              notifications.error(e?.message || "Unable to start app list update. Please try again.");
             }
             // refresh stats after a small delay to pick up quick updates
             setTimeout(() => fetchAppListStats(), 2000);

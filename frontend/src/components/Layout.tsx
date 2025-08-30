@@ -15,7 +15,19 @@ export const Layout: React.FC<Props> = ({ children }) => {
 
   return (
     <SidebarProvider defaultOpen={true} className="bg-background text-foreground transition-colors">
-      <Toaster position="top-right" reverseOrder={true} limit={3} />
+      <Toaster
+        position="top-right"
+        reverseOrder={true}
+        limit={3}
+        toastOptions={{
+          duration: 4000,
+          style: {
+            background: "var(--background)",
+            color: "var(--foreground)",
+            border: "1px solid var(--border)",
+          },
+        }}
+      />
       
       <AppSidebar />
       

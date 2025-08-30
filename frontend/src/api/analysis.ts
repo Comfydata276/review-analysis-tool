@@ -1,3 +1,32 @@
+// Utility function to handle API errors properly
+async function handleApiError(response: Response): Promise<never> {
+  let errorMessage = "An unknown error occurred";
+
+  try {
+    const errorData = await response.json();
+    // Extract the detail message from FastAPI error responses
+    if (errorData.detail) {
+      errorMessage = errorData.detail;
+    } else if (typeof errorData === 'string') {
+      errorMessage = errorData;
+    } else {
+      errorMessage = JSON.stringify(errorData);
+    }
+  } catch {
+    // If JSON parsing fails, fall back to text
+    try {
+      const text = await response.text();
+      if (text) {
+        errorMessage = text;
+      }
+    } catch {
+      errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+    }
+  }
+
+  throw new Error(errorMessage);
+}
+
 export interface AnalysisSettings {
   global_settings: {
     max_reviews?: number;
@@ -26,7 +55,7 @@ export async function previewAnalysis(settings: AnalysisSettings): Promise<Analy
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(settings),
   });
-  if (!resp.ok) throw new Error(await resp.text());
+  if (!resp.ok) await handleApiError(resp);
   return resp.json();
 }
 
@@ -44,13 +73,13 @@ export async function saveAnalysisSettings(payload: any): Promise<void> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-  if (!resp.ok) throw new Error(await resp.text());
+  if (!resp.ok) await handleApiError(resp);
 }
 
 export async function deleteAnalysisSettings(): Promise<void> {
   const BACKEND_URL = (import.meta as any).env.VITE_BACKEND_URL || "http://127.0.0.1:8000";
   const resp = await fetch(`${BACKEND_URL}/settings/analysis`, { method: "DELETE" });
-  if (!resp.ok) throw new Error(await resp.text());
+  if (!resp.ok) await handleApiError(resp);
 }
 
 export interface StartAnalysisPayload {
@@ -72,21 +101,21 @@ export async function startAnalysis(payload: StartAnalysisPayload): Promise<{ jo
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-  if (!resp.ok) throw new Error(await resp.text());
+  if (!resp.ok) await handleApiError(resp);
   return resp.json();
 }
 
 export async function listAnalysisJobs(): Promise<any[]> {
   const BACKEND_URL = (import.meta as any).env.VITE_BACKEND_URL || "http://127.0.0.1:8000";
   const resp = await fetch(`${BACKEND_URL}/analysis/jobs`);
-  if (!resp.ok) throw new Error(await resp.text());
+  if (!resp.ok) await handleApiError(resp);
   return resp.json();
 }
 
 export async function getJobResults(jobId: number): Promise<any[]> {
   const BACKEND_URL = (import.meta as any).env.VITE_BACKEND_URL || "http://127.0.0.1:8000";
   const resp = await fetch(`${BACKEND_URL}/analysis/jobs/${jobId}/results`);
-  if (!resp.ok) throw new Error(await resp.text());
+  if (!resp.ok) await handleApiError(resp);
   return resp.json();
 }
 
@@ -97,7 +126,7 @@ export async function listAnalysisResults(appId?: number, limit = 100, offset = 
   params.set("limit", String(limit));
   params.set("offset", String(offset));
   const resp = await fetch(`${BACKEND_URL}/analysis/results?${params.toString()}`);
-  if (!resp.ok) throw new Error(await resp.text());
+  if (!resp.ok) await handleApiError(resp);
   return resp.json();
 }
 
@@ -116,34 +145,34 @@ export async function createApiKey(payload: ApiKeyCreatePayload): Promise<any> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-  if (!resp.ok) throw new Error(await resp.text());
+  if (!resp.ok) await handleApiError(resp);
   return resp.json();
 }
 
 export async function listApiKeys(): Promise<any[]> {
   const BACKEND_URL = (import.meta as any).env.VITE_BACKEND_URL || "http://127.0.0.1:8000";
   const resp = await fetch(`${BACKEND_URL}/settings/api-keys`);
-  if (!resp.ok) throw new Error(await resp.text());
+  if (!resp.ok) await handleApiError(resp);
   return resp.json();
 }
 
 export async function getApiKey(keyId: number): Promise<any> {
   const BACKEND_URL = (import.meta as any).env.VITE_BACKEND_URL || "http://127.0.0.1:8000";
   const resp = await fetch(`${BACKEND_URL}/settings/api-keys/${keyId}`);
-  if (!resp.ok) throw new Error(await resp.text());
+  if (!resp.ok) await handleApiError(resp);
   return resp.json();
 }
 
 export async function deleteApiKey(keyId: number): Promise<void> {
   const BACKEND_URL = (import.meta as any).env.VITE_BACKEND_URL || "http://127.0.0.1:8000";
   const resp = await fetch(`${BACKEND_URL}/settings/api-keys/${keyId}`, { method: "DELETE" });
-  if (!resp.ok) throw new Error(await resp.text());
+  if (!resp.ok) await handleApiError(resp);
 }
 
 export async function getLLMConfig(): Promise<any> {
   const BACKEND_URL = (import.meta as any).env.VITE_BACKEND_URL || "http://127.0.0.1:8000";
   const resp = await fetch(`${BACKEND_URL}/settings/llm-config`);
-  if (!resp.ok) throw new Error(await resp.text());
+  if (!resp.ok) await handleApiError(resp);
   return resp.json();
 }
 
@@ -154,7 +183,7 @@ export async function saveLLMConfig(payload: any): Promise<void> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-  if (!resp.ok) throw new Error(await resp.text());
+  if (!resp.ok) await handleApiError(resp);
 }
 
 

@@ -6,11 +6,40 @@ import { Select } from "../components/ui/Select";
 import { FormField, FormSection } from "../components/ui/FormField";
 import { createApiKey, listApiKeys, deleteApiKey } from "../api/analysis";
 import { getLLMConfig, saveLLMConfig } from "../api/analysis";
-import toast from "react-hot-toast";
+import { notifications } from "../utils/notifications";
 import ProviderCard from "../components/ProviderCard";
 import { ConfirmModal } from "../components/ConfirmModal";
 import ApiKeyModal from "../components/ApiKeyModal";
 import { EyeIcon, EyeSlashIcon } from "@heroicons/react/24/outline";
+
+// Utility function to handle API errors properly
+async function handleApiError(response: Response): Promise<never> {
+  let errorMessage = "An unknown error occurred";
+
+  try {
+    const errorData = await response.json();
+    // Extract the detail message from FastAPI error responses
+    if (errorData.detail) {
+      errorMessage = errorData.detail;
+    } else if (typeof errorData === 'string') {
+      errorMessage = errorData;
+    } else {
+      errorMessage = JSON.stringify(errorData);
+    }
+  } catch {
+    // If JSON parsing fails, fall back to text
+    try {
+      const text = await response.text();
+      if (text) {
+        errorMessage = text;
+      }
+    } catch {
+      errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+    }
+  }
+
+  throw new Error(errorMessage);
+}
 
 export const LLMConfig: React.FC = () => {
   const [keys, setKeys] = useState<any[]>([]);
@@ -27,6 +56,7 @@ export const LLMConfig: React.FC = () => {
   const [apiKeyModalOpen, setApiKeyModalOpen] = useState(false);
   const [editingKey, setEditingKey] = useState<any | null>(null);
 
+
   async function load() {
     setKeysLoading(true);
     try {
@@ -39,7 +69,7 @@ export const LLMConfig: React.FC = () => {
         setLlmConfig({});
       }
     } catch (e: any) {
-      toast.error("Failed to load API keys");
+      notifications.error("Unable to load API keys. Please check your connection and try again.");
     } finally {
       setKeysLoading(false);
     }
@@ -60,7 +90,7 @@ export const LLMConfig: React.FC = () => {
           delete next.providers[provider].models[api_name];
           await saveLLMConfig(next);
           setLlmConfig(next);
-          toast.success('Model deleted');
+          notifications.success('Model deleted');
         }
       });
       setConfirmOpen(true);
@@ -74,10 +104,10 @@ export const LLMConfig: React.FC = () => {
       await createApiKey({ provider, encrypted_key: keyRaw, name });
       setKeyRaw("");
       setName("");
-      toast.success("API key saved");
+      notifications.success("API key saved");
       load();
     } catch (e: any) {
-      toast.error(e.message || "Failed to save key");
+      notifications.error(e.message || "Unable to save API key. Please verify the key format and try again.");
     }
   }
 
@@ -88,11 +118,11 @@ export const LLMConfig: React.FC = () => {
       if (nextName !== undefined) payload.name = nextName;
       const BACKEND_URL = (import.meta as any).env.VITE_BACKEND_URL || "http://127.0.0.1:8000";
       const resp = await fetch(`${BACKEND_URL}/settings/api-keys/${id}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-      if (!resp.ok) throw new Error(await resp.text());
-      toast.success('Key updated');
+      if (!resp.ok) await handleApiError(resp);
+      notifications.success('Key updated');
       load();
     } catch (e: any) {
-      toast.error(e.message || 'Update failed');
+      notifications.error(e.message || 'Unable to update API key. Please verify the key format and try again.');
     }
   }
 
@@ -102,7 +132,7 @@ export const LLMConfig: React.FC = () => {
     setConfirmAction(() => async () => {
       try {
         await deleteApiKey(id);
-        toast.success("Deleted");
+        notifications.success("Deleted");
         // After deleting a key, reload keys and ensure any providers using this key are disabled
         await load();
         try {
@@ -125,7 +155,7 @@ export const LLMConfig: React.FC = () => {
           // ignore
         }
       } catch (e: any) {
-        toast.error("Delete failed");
+        notifications.error("Unable to delete API key. Please try again.");
       }
     });
     setConfirmOpen(true);

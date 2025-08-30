@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import toast from "react-hot-toast";
+import { notifications } from "../utils/notifications";
 import { Card } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
 import { Select } from "../components/ui/Select";
@@ -33,6 +33,7 @@ export const ProviderCard: React.FC<Props> = ({ provider, keys, config, onChange
   const [openModal, setOpenModal] = useState(false);
   const [editing, setEditing] = useState<ModelDef | null>(null);
 
+
   // Match keys by provider case-insensitively
   const firstKeyForProvider = keys.find((k) => String(k.provider || "").toLowerCase() === providerKey) || null;
 
@@ -44,13 +45,21 @@ export const ProviderCard: React.FC<Props> = ({ provider, keys, config, onChange
     // Prevent enabling provider if no API key is selected
     const currentlyEnabled = Boolean(next.providers[providerKey].enabled);
     const hasApiKey = Boolean(next.providers[providerKey].api_key_id) || Boolean(firstKeyForProvider);
+
     if (!currentlyEnabled && !hasApiKey) {
-      toast.error("Select an API key before enabling this provider");
+      // Show error toast
+      notifications.error("Please select an API key before enabling this provider.");
       return;
     }
-    next.providers[providerKey].enabled = !currentlyEnabled;
-    if (!next.providers[providerKey].api_key_id && firstKeyForProvider) next.providers[providerKey].api_key_id = firstKeyForProvider.id;
-    await onChange(next);
+
+    try {
+      next.providers[providerKey].enabled = !currentlyEnabled;
+      if (!next.providers[providerKey].api_key_id && firstKeyForProvider) next.providers[providerKey].api_key_id = firstKeyForProvider.id;
+      await onChange(next);
+    } catch (e: any) {
+      // Handle any errors from the onChange call
+      notifications.error(e.message || "Unable to update provider settings. Please try again.");
+    }
   }
 
   async function selectKey(id: number) {
@@ -62,12 +71,12 @@ export const ProviderCard: React.FC<Props> = ({ provider, keys, config, onChange
     if (id === null) {
       next.providers[providerKey].enabled = false;
     }
+
     try {
       await onChange(next);
-      toast.success("API key set active");
+      notifications.success("API key set active");
     } catch (e: any) {
-      toast.error("Failed to set API key");
-      throw e;
+      notifications.error("Unable to set API key. Please try again.");
     }
   }
 

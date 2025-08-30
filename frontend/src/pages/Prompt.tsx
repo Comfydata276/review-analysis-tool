@@ -3,7 +3,7 @@ import { Card } from "../components/ui/Card";
 import { FormField } from "../components/ui/FormField";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
-import toast from "react-hot-toast";
+import { notifications } from "../utils/notifications";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { listPrompts, getPrompt, savePrompt, uploadPrompt, deletePrompt, getActivePrompt, setActivePrompt } from "../api/prompts";
 import Editor from "@monaco-editor/react";
@@ -92,7 +92,7 @@ export const Prompt: React.FC = () => {
           setDirty(false);
         }
       } catch (e: any) {
-        toast.error(`Failed to load ${selected}: ${e.message || e}`);
+        notifications.error(`Unable to load prompt "${selected}". Please check your connection and try again.`);
       }
     })();
     return () => {
@@ -114,39 +114,39 @@ export const Prompt: React.FC = () => {
   }, [selected, content]);
 
   async function handleSave() {
-    if (!selected) return toast.error("No prompt selected");
+    if (!selected) return notifications.error("Please select a prompt to save.");
     try {
       await savePrompt(selected, content);
-      toast.success("Saved");
+      notifications.success("Saved");
       originalContentRef.current = content;
       setDirty(false);
     } catch (e: any) {
-      toast.error(e.message || String(e));
+      notifications.error("Unable to save prompt. Please check your connection and try again.");
     }
   }
 
   async function handleUploadFile(f: File) {
     try {
       await uploadPrompt(f);
-      toast.success("Uploaded");
+      notifications.success("Uploaded");
       const names = await listPrompts();
       setFiles(names.map((n) => ({ label: n, value: n })));
       setSelected(f.name);
     } catch (e: any) {
-      toast.error(e.message || String(e));
+      notifications.error("Unable to upload prompt file. Please check the file format and try again.");
     }
   }
 
   async function handleCreateNew() {
     const raw = (newFilename || "").trim();
-    if (!raw) return toast.error("Please provide a filename");
+    if (!raw) return notifications.error("Please enter a filename for the new prompt.");
 
     // Validate against allowed characters (letters, numbers, dash, underscore)
     if (!/^[A-Za-z0-9-_]+$/.test(raw)) {
-      return toast.error("Filename contains invalid characters. Only letters, numbers, '-' and '_' are allowed.");
+      return notifications.error("Filename contains invalid characters. Please use only letters, numbers, hyphens (-), and underscores (_).");
     }
 
-    if (raw.length > 200) return toast.error("Filename too long");
+    if (raw.length > 200) return notifications.error("Filename is too long. Please use a shorter name (maximum 200 characters).");
 
     const filename = `${raw}.txt`;
 
@@ -163,9 +163,9 @@ export const Prompt: React.FC = () => {
       setSelected(filename);
       setCreating(false);
       setNewFilename("");
-      toast.success("Created");
+      notifications.success("Created");
     } catch (e: any) {
-      toast.error(e.message || String(e));
+      notifications.error("Unable to create new prompt. Please try again.");
     }
   }
 
@@ -174,7 +174,7 @@ export const Prompt: React.FC = () => {
     console.log("Prompt: handleDelete clicked", filename);
     
     if (filename === "prompt.txt") {
-      return toast.error("Cannot delete the default prompt");
+      return notifications.error("The default prompt cannot be deleted as it is required by the system.");
     }
 
     // open confirmation modal instead of native confirm
@@ -189,7 +189,7 @@ export const Prompt: React.FC = () => {
     setToDelete(null);
     try {
       await deletePrompt(filename);
-      toast.success(`Deleted ${filename}`);
+      notifications.success(`Deleted ${filename}`);
 
       const names = await listPrompts();
       setFiles(names.map((n) => ({ label: n, value: n })));
@@ -199,7 +199,7 @@ export const Prompt: React.FC = () => {
         try {
           await setActivePrompt("prompt.txt");
           setActivePromptState("prompt.txt");
-          toast.success("Set active prompt: prompt.txt");
+          notifications.success("Set active prompt: prompt.txt");
         } catch (err: any) {
           console.error("Failed to set default active prompt:", err);
         }
@@ -210,7 +210,7 @@ export const Prompt: React.FC = () => {
         setSelected(remaining.length > 0 ? remaining[0] : "");
       }
     } catch (e: any) {
-      toast.error(`Failed to delete ${filename}: ${e.message || e}`);
+      notifications.error(`Unable to delete "${filename}". Please try again.`);
     }
   }
 
@@ -299,7 +299,7 @@ export const Prompt: React.FC = () => {
                 if (f) {
                   const isTxt = /\.txt$/i.test(f.name) || f.type === "text/plain";
                   if (!isTxt) {
-                    toast.error("Only .txt files are allowed");
+                    notifications.error("Only .txt files are allowed. Please select a text file to upload.");
                   } else {
                     handleUploadFile(f);
                   }
@@ -321,7 +321,7 @@ export const Prompt: React.FC = () => {
                       // Allow only letters, numbers, dash, underscore
                       const cleaned = raw.replace(/[^A-Za-z0-9-_]/g, "");
                       if (cleaned !== raw) {
-                        setFilenameError("Invalid characters removed. Only letters, numbers, '-' and '_' allowed.");
+                        setFilenameError("Invalid characters removed. Only letters, numbers, hyphens (-), and underscores (_) are allowed.");
                       } else {
                         setFilenameError(null);
                       }
@@ -400,7 +400,7 @@ export const Prompt: React.FC = () => {
                         </button>
                       )}
 
-                      <Button size="sm" variant={activePrompt === file.value ? "gradient" : "outline"} className="ml-2 h-7" onClick={(e) => { e.stopPropagation(); (async () => { try { await setActivePrompt(file.value); setActivePromptState(file.value); toast.success(`Set active prompt: ${file.value}`); } catch (err: any) { toast.error(err.message || String(err)); } })(); }}>
+                      <Button size="sm" variant={activePrompt === file.value ? "gradient" : "outline"} className="ml-2 h-7" onClick={(e) => { e.stopPropagation(); (async () => { try { await setActivePrompt(file.value); setActivePromptState(file.value); notifications.success(`Set active prompt: ${file.value}`); } catch (err: any) { notifications.error(err.message || String(err)); } })(); }}>
                         {activePrompt === file.value ? 'Active' : 'Set active'}
                       </Button>
                     </div>

@@ -26,9 +26,38 @@ export interface ScraperStatus {
 
 const BASE_URL = (import.meta as any).env.VITE_BACKEND_URL || "http://127.0.0.1:8000";
 
+// Utility function to handle API errors properly
+async function handleApiError(response: Response): Promise<never> {
+  let errorMessage = "An unknown error occurred";
+
+  try {
+    const errorData = await response.json();
+    // Extract the detail message from FastAPI error responses
+    if (errorData.detail) {
+      errorMessage = errorData.detail;
+    } else if (typeof errorData === 'string') {
+      errorMessage = errorData;
+    } else {
+      errorMessage = JSON.stringify(errorData);
+    }
+  } catch {
+    // If JSON parsing fails, fall back to text
+    try {
+      const text = await response.text();
+      if (text) {
+        errorMessage = text;
+      }
+    } catch {
+      errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+    }
+  }
+
+  throw new Error(errorMessage);
+}
+
 async function handle<T>(resp: Response): Promise<T> {
 	if (!resp.ok) {
-		throw new Error(await resp.text());
+		await handleApiError(resp);
 	}
 	return (await resp.json()) as T;
 }
@@ -39,12 +68,12 @@ export async function startScraper(payload: ScraperSettings): Promise<void> {
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify(payload),
 	});
-	if (!resp.ok) throw new Error(await resp.text());
+	if (!resp.ok) await handleApiError(resp);
 }
 
 export async function stopScraper(): Promise<void> {
 	const resp = await fetch(`${BASE_URL}/scraper/stop`, { method: "POST" });
-	if (!resp.ok) throw new Error(await resp.text());
+	if (!resp.ok) await handleApiError(resp);
 }
 
 export async function getScraperStatus(): Promise<ScraperStatus> {
@@ -67,12 +96,12 @@ export async function saveScraperSettings(payload: any): Promise<void> {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
     });
-    if (!resp.ok) throw new Error(await resp.text());
+    if (!resp.ok) await handleApiError(resp);
 }
 
 export async function deleteScraperSettings(): Promise<void> {
     const resp = await fetch(`${BASE_URL}/settings/scraper`, { method: "DELETE" });
-    if (!resp.ok) throw new Error(await resp.text());
+    if (!resp.ok) await handleApiError(resp);
 }
 
 

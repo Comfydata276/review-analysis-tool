@@ -10,61 +10,106 @@ export const notifications = (() => {
   let activeToastIds: Array<string | number> = [];
 
   function cleanInactive() {
-    activeToastIds = activeToastIds.filter((id) => !!toast.isActive(id));
+    // Simplified cleanup - just remove any undefined/null IDs
+    activeToastIds = activeToastIds.filter((id) => id != null);
   }
 
   function pushId(id: string | number) {
     cleanInactive();
-    if (activeToastIds.length >= MAX_TOASTS) {
-      // dismiss the oldest
+
+    // If we still have too many toasts after cleaning, dismiss the oldest ones
+    while (activeToastIds.length >= MAX_TOASTS) {
       const oldest = activeToastIds.shift();
-      if (oldest !== undefined) toast.dismiss(oldest);
+      if (oldest !== undefined) {
+        toast.dismiss(oldest);
+      }
     }
+
     activeToastIds.push(id);
   }
 
-  function makeOptions(options?: NotificationOptions) {
+  function makeOptions(options?: NotificationOptions, toastType: 'success' | 'error' | 'info' | 'loading' = 'info') {
+    // Base styles for all toasts
+    const baseStyles = {
+      backdropFilter: 'blur(12px)',
+      WebkitBackdropFilter: 'blur(12px)',
+      borderRadius: '12px',
+      border: '1px solid rgba(255, 255, 255, 0.1)',
+      boxShadow: '0 8px 32px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.08)',
+      fontWeight: '500',
+      fontSize: '14px',
+      lineHeight: '1.4',
+      maxWidth: '400px',
+      padding: '12px 16px',
+      wordWrap: 'break-word' as const,
+    };
+
+    // Type-specific gradient backgrounds
+    const getBackground = (type: string) => {
+      switch (type) {
+        case 'success':
+          return 'linear-gradient(135deg, rgba(34, 197, 94, 0.15) 0%, rgba(22, 163, 74, 0.1) 100%)';
+        case 'error':
+          return 'linear-gradient(135deg, rgba(239, 68, 68, 0.15) 0%, rgba(220, 38, 38, 0.1) 100%)';
+        case 'info':
+          return 'linear-gradient(135deg, rgba(59, 130, 246, 0.15) 0%, rgba(37, 99, 235, 0.1) 100%)';
+        case 'loading':
+          return 'linear-gradient(135deg, rgba(156, 163, 175, 0.15) 0%, rgba(107, 114, 128, 0.1) 100%)';
+        default:
+          return 'linear-gradient(135deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0.05) 100%)';
+      }
+    };
+
     return {
       duration: options?.duration,
       position: options?.position || "top-right",
       style: {
-        background: "var(--background)",
+        ...baseStyles,
+        background: getBackground(toastType),
         color: "var(--foreground)",
-        border: "1px solid var(--border)",
+        // Ensure text is always readable
+        textShadow: '0 1px 2px rgba(0, 0, 0, 0.05)',
       },
     } as any;
   }
 
   return {
     success: (message: string, options?: NotificationOptions) => {
-      const id = toast.success(message, makeOptions(options));
+      const opts = makeOptions(options, 'success');
+      opts.duration = options?.duration || 2500;
+      const id = toast.success(message, opts);
       pushId(id);
       return id;
     },
 
     error: (message: string, options?: NotificationOptions) => {
-      const opts = makeOptions(options);
-      opts.duration = options?.duration || 6000;
+      // Maintain maximum of 3 toasts by dismissing oldest when limit reached
+      if (activeToastIds.length >= MAX_TOASTS) {
+        const oldest = activeToastIds.shift();
+        if (oldest !== undefined) {
+          toast.dismiss(oldest);
+        }
+      }
+
+      const opts = makeOptions(options, 'error');
+      opts.duration = options?.duration || 3000;
       const id = toast.error(message, opts);
-      pushId(id);
+      activeToastIds.push(id);
       return id;
     },
 
     info: (message: string, options?: NotificationOptions) => {
-      const opts = makeOptions(options);
+      const opts = makeOptions(options, 'info');
+      opts.duration = options?.duration || 2500;
       const id = toast(message, { ...opts, icon: "ℹ️" });
       pushId(id);
       return id;
     },
 
     loading: (message: string) => {
-      const id = toast.loading(message, {
-        style: {
-          background: "var(--background)",
-          color: "var(--foreground)",
-          border: "1px solid var(--border)",
-        },
-      });
+      const opts = makeOptions({}, 'loading');
+      opts.duration = 4000; // Loading toasts can stay a bit longer
+      const id = toast.loading(message, opts);
       pushId(id);
       return id;
     },
@@ -78,21 +123,11 @@ export const notifications = (() => {
       }
     ) => {
       // We don't need to track the promise id (toast.promise handles it), but enforce limit by creating a loading toast first
-      const loadingId = toast.loading(messages.loading, {
-        style: {
-          background: "var(--background)",
-          color: "var(--foreground)",
-          border: "1px solid var(--border)",
-        },
-      });
+      const loadingOpts = makeOptions({}, 'loading');
+      loadingOpts.duration = 4000; // Loading toasts can stay a bit longer
+      const loadingId = toast.loading(messages.loading, loadingOpts);
       pushId(loadingId);
-      const wrapped = toast.promise(promise, messages, {
-        style: {
-          background: "var(--background)",
-          color: "var(--foreground)",
-          border: "1px solid var(--border)",
-        },
-      });
+      const wrapped = toast.promise(promise, messages, makeOptions({}, 'info'));
       return wrapped;
     },
 
@@ -126,6 +161,15 @@ export const notifications = (() => {
       exportCompleted: (filename: string) => {
         notifications.success(`Export saved as ${filename}`, { duration: 5000 });
       },
+    },
+
+    // Utility function to force cleanup of inactive toasts
+    cleanup: () => {
+      cleanInactive();
+      while (activeToastIds.length > MAX_TOASTS) {
+        const oldest = activeToastIds.shift();
+        if (oldest !== undefined) toast.dismiss(oldest);
+      }
     },
   };
 })();
@@ -180,7 +224,7 @@ export const desktopUtils = {
       notifications.desktop.exportCompleted(filename);
     } catch (error) {
       toast.dismiss(exportId);
-      notifications.error("Export failed");
+      notifications.error("Unable to export file. Please try again.");
       throw error;
     }
   },

@@ -21,7 +21,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "../components/ui/Tabs"
 import { FormField, FormSection, FormGrid } from "../components/ui/FormField";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "../components/ui/Collapsible";
 import { cn } from "../lib/utils";
-import toast from "react-hot-toast";
+import { notifications } from "../utils/notifications";
 import { desktopUtils } from "../utils/notifications";
 import { PlayIcon, StopIcon } from "@heroicons/react/24/outline";
 import {
@@ -299,7 +299,7 @@ export const Analysis: React.FC = () => {
  				await saveAnalysisSettings(payload);
  			} catch (e: any) {
  				console.error("Failed to save analysis settings", e);
- 				toast.error("Failed to save settings to server");
+ 				notifications.error("Unable to save settings. Please check your connection and try again.");
  			}
  		}, 1000);
 
@@ -334,7 +334,7 @@ export const Analysis: React.FC = () => {
  		(async () => {
  			try {
  				await deleteAnalysisSettings();
- 				toast.success("Server settings cleared");
+ 				notifications.success("Server settings cleared");
  			} catch (e) {
  				// non-fatal
  			}
@@ -360,7 +360,7 @@ export const Analysis: React.FC = () => {
  			.catch((e) => {
  				const msg = e.message || "Failed to load active games";
  				setError(msg);
- 				toast.error(msg);
+ 				notifications.error(msg);
  			});
  	}, [selectedExportGame, selectedGameAppId]);
 
@@ -429,11 +429,11 @@ useEffect(() => {
 	const handleRunAnalysis = async () => {
 		const appId = selectedGame?.app_id || selectedGameAppId;
 		if (!appId) {
-			toast.error("Select a game before running analysis");
+			notifications.error("Please select a game before running analysis.");
 			return;
 		}
 		if (!llmConfig || !llmConfig.providers) {
-			toast.error("No LLM configuration available");
+			notifications.error("No LLM configuration is available. Please configure your providers in the LLM Config page.");
 			return;
 		}
 
@@ -469,7 +469,7 @@ useEffect(() => {
 		}
 
 		if (runs.length === 0) {
-			toast.error('No enabled provider/models found in LLM Config');
+			notifications.error('No enabled providers or models found in LLM Config. Please enable at least one provider and model.');
 			return;
 		}
 
@@ -502,7 +502,7 @@ useEffect(() => {
 
 				// start job
 				const resp = await startAnalysis(payload);
-				toast.success(`Started job ${resp.job_id} for ${r.provider}/${r.model}`);
+				notifications.success(`Started job ${resp.job_id} for ${r.provider}/${r.model}`);
 
 				// poll for job completion
 				let finished = false;
@@ -517,8 +517,8 @@ useEffect(() => {
 							setStatus(job);
 							if (job.status === 'completed' || job.status === 'error' || job.status === 'cancelled') {
 								finished = true;
-								if (job.status === 'completed') toast.success(`Job ${resp.job_id} completed`);
-								else toast.error(`Job ${resp.job_id} ended with status ${job.status}`);
+								if (job.status === 'completed') notifications.success(`Job ${resp.job_id} completed`);
+								else notifications.error(`Job ${resp.job_id} ended with status ${job.status}`);
 							}
 						}
 					} catch (e) {
@@ -527,7 +527,7 @@ useEffect(() => {
 				}
 			}
 		} catch (e: any) {
-			toast.error(e.message || 'Failed to start analysis runs');
+			notifications.error(e.message || 'Unable to start analysis. Please check your configuration and try again.');
 		} finally {
 			setRunLoading(false);
 		}
@@ -538,7 +538,7 @@ useEffect(() => {
 
  	const handleExport = useCallback(async (format: "csv" | "xlsx") => {
  		if (!selectedExportGame) {
- 			toast.error("Please select a game to export reviews for.");
+ 			notifications.error("Please select a game to export reviews for.");
  			return;
  		}
 
@@ -554,7 +554,7 @@ useEffect(() => {
  			if (!response.ok) {
  				const text = await response.text();
  				if (response.status === 404) {
- 					toast.error("No reviews found for the selected game.");
+ 					notifications.error("No reviews found for the selected game. Try scraping reviews first.");
  					return;
  				}
  				throw new Error(text || `HTTP ${response.status}`);
@@ -575,10 +575,10 @@ useEffect(() => {
  			a.remove();
  			URL.revokeObjectURL(blobUrl);
 
- 			toast.success(`Download started for ${gameName}`);
+ 			notifications.success(`Download started for ${gameName}`);
  		} catch (error: any) {
  			console.error("Export failed:", error);
- 			toast.error(error.message || "Download failed");
+ 			notifications.error(error.message || "Unable to download file. Please try again.");
  		}
  	}, [selectedExportGame, activeGames]);
 
@@ -654,10 +654,10 @@ useEffect(() => {
  						const parts: string[] = [];
  						if (steamCount !== null) parts.push(`${steamCount} on Steam`);
  						if (dbCount !== null) parts.push(`${dbCount} in DB`);
- 						if (parts.length > 0) toast.success(`Review counts updated: ${parts.join(", ")}`);
+ 						if (parts.length > 0) notifications.success(`Review counts updated: ${parts.join(", ")}`);
  					}
  				} catch (e) {
- 					if (!cancelled) toast.error("Failed to refresh review counts");
+ 					if (!cancelled) notifications.error("Unable to refresh review counts. Please check your connection.");
  				}
  			})();
  			return () => {

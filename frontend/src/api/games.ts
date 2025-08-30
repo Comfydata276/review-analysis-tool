@@ -2,10 +2,38 @@ import { Game, GameSearchResponse } from "../types";
 
 const BASE_URL = (import.meta as any).env.VITE_BACKEND_URL || "http://127.0.0.1:8000";
 
+// Utility function to handle API errors properly
+async function handleApiError(response: Response): Promise<never> {
+  let errorMessage = "An unknown error occurred";
+
+  try {
+    const errorData = await response.json();
+    // Extract the detail message from FastAPI error responses
+    if (errorData.detail) {
+      errorMessage = errorData.detail;
+    } else if (typeof errorData === 'string') {
+      errorMessage = errorData;
+    } else {
+      errorMessage = JSON.stringify(errorData);
+    }
+  } catch {
+    // If JSON parsing fails, fall back to text
+    try {
+      const text = await response.text();
+      if (text) {
+        errorMessage = text;
+      }
+    } catch {
+      errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+    }
+  }
+
+  throw new Error(errorMessage);
+}
+
 async function handleResponse<T>(resp: Response): Promise<T> {
 	if (!resp.ok) {
-		const text = await resp.text();
-		throw new Error(text || `HTTP ${resp.status}`);
+		await handleApiError(resp);
 	}
 	return (await resp.json()) as T;
 }
@@ -65,16 +93,14 @@ export async function addActiveGame(game: Game): Promise<void> {
 		body: JSON.stringify(game),
 	});
 	if (!resp.ok) {
-		const text = await resp.text();
-		throw new Error(text || `HTTP ${resp.status}`);
+		await handleApiError(resp);
 	}
 }
 
 export async function removeActiveGame(appId: number): Promise<void> {
 	const resp = await fetch(`${BASE_URL}/games/active/${appId}`, { method: "DELETE" });
 	if (!resp.ok) {
-		const text = await resp.text();
-		throw new Error(text || `HTTP ${resp.status}`);
+		await handleApiError(resp);
 	}
 }
 

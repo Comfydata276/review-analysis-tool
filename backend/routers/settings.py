@@ -23,7 +23,7 @@ def get_scraper_settings(db: Session = Depends(get_db)) -> Any:
 
         return json.loads(s.value)
     except Exception:
-        raise HTTPException(status_code=500, detail="Failed to parse settings")
+        raise HTTPException(status_code=500, detail="Unable to load settings. The configuration file may be corrupted or inaccessible.")
 
 
 @router.post("/scraper")
@@ -54,7 +54,7 @@ def get_analysis_settings(db: Session = Depends(get_db)) -> Any:
 
         return json.loads(s.value)
     except Exception:
-        raise HTTPException(status_code=500, detail="Failed to parse settings")
+        raise HTTPException(status_code=500, detail="Unable to load settings. The configuration file may be corrupted or inaccessible.")
 
 
 @router.post("/analysis")
@@ -85,7 +85,7 @@ def get_llm_config(db: Session = Depends(get_db)) -> Any:
 
         return json.loads(s.value)
     except Exception:
-        raise HTTPException(status_code=500, detail="Failed to parse settings")
+        raise HTTPException(status_code=500, detail="Unable to load settings. The configuration file may be corrupted or inaccessible.")
 
 
 @router.post("/llm-config")
@@ -107,13 +107,13 @@ def create_api_key(payload: ApiKeyCreate = Body(...), db: Session = Depends(get_
         prov = str(payload.provider or "").lower()
         raw = payload.encrypted_key or ""
         if prov == 'openai' and not (raw.startswith('sk-') or raw.startswith('oai-') or len(raw) > 30):
-            raise HTTPException(status_code=400, detail="Unrecognized OpenAI key format")
+            raise HTTPException(status_code=400, detail="Incorrect OpenAI API key format. Please provide a valid OpenAI API key starting with 'sk-' or 'oai-'")
         if prov == 'openrouter' and not raw.startswith('sk-or-'):
-            raise HTTPException(status_code=400, detail="Unrecognized OpenRouter key format")
+            raise HTTPException(status_code=400, detail="Incorrect OpenRouter API key format. Please provide a valid OpenRouter API key starting with 'sk-or-'")
         if prov == 'anthropic' and not raw.startswith('sk-ant-'):
-            raise HTTPException(status_code=400, detail="Unrecognized Anthropic key format")
+            raise HTTPException(status_code=400, detail="Incorrect Anthropic API key format. Please provide a valid Anthropic API key starting with 'sk-ant-'")
         if prov == 'google' and not raw.startswith('AIza'):
-            raise HTTPException(status_code=400, detail="Unrecognized Google API key format")
+            raise HTTPException(status_code=400, detail="Incorrect Google API key format. Please provide a valid Google API key starting with 'AIza'")
 
         enc = encrypt_key(raw)
         k = crud.create_api_key(db, payload.provider, enc, payload.name, payload.notes)
@@ -136,7 +136,7 @@ def list_api_keys(db: Session = Depends(get_db)) -> Any:
 def get_api_key(key_id: int, db: Session = Depends(get_db)) -> Any:
     k = crud.get_api_key(db, key_id)
     if not k:
-        raise HTTPException(status_code=404, detail="Not found")
+        raise HTTPException(status_code=404, detail="API key not found")
     # For security, do not return decrypted key material via this endpoint.
     # Return metadata only; if a consumer needs the raw key, provide a secure export flow.
     return ApiKeyRead.from_orm(k)
@@ -162,18 +162,18 @@ def update_api_key(key_id: int, payload: Any = Body(...), db: Session = Depends(
             p = str(prov or '').lower()
             raw = payload.get('encrypted_key') or ''
             if p == 'openai' and not (raw.startswith('sk-') or raw.startswith('oai-') or len(raw) > 30):
-                raise HTTPException(status_code=400, detail="Unrecognized OpenAI key format")
+                raise HTTPException(status_code=400, detail="Incorrect OpenAI API key format. Please provide a valid OpenAI API key starting with 'sk-' or 'oai-'")
             if p == 'openrouter' and not raw.startswith('sk-or-'):
-                raise HTTPException(status_code=400, detail="Unrecognized OpenRouter key format")
+                raise HTTPException(status_code=400, detail="Incorrect OpenRouter API key format. Please provide a valid OpenRouter API key starting with 'sk-or-'")
             if p == 'anthropic' and not raw.startswith('sk-ant-'):
-                raise HTTPException(status_code=400, detail="Unrecognized Anthropic key format")
+                raise HTTPException(status_code=400, detail="Incorrect Anthropic API key format. Please provide a valid Anthropic API key starting with 'sk-ant-'")
             if p == 'google' and not raw.startswith('AIza'):
-                raise HTTPException(status_code=400, detail="Unrecognized Google API key format")
+                raise HTTPException(status_code=400, detail="Incorrect Google API key format. Please provide a valid Google API key starting with 'AIza'")
 
             enc = encrypt_key(raw)
         k = crud.update_api_key(db, key_id, encrypted_key=enc, name=payload.get("name"), notes=payload.get("notes"), provider=payload.get("provider"))
         if not k:
-            raise HTTPException(status_code=404, detail="Not found")
+            raise HTTPException(status_code=404, detail="API key not found")
         return {"ok": True}
     except HTTPException:
         # propagate HTTP errors as-is

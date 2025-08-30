@@ -26,8 +26,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "../components/ui/Tabs"
 import { FormField, FormSection, FormGrid } from "../components/ui/FormField";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "../components/ui/Collapsible";
 import { cn } from "../lib/utils";
-import toast from "react-hot-toast";
-import { desktopUtils } from "../utils/notifications";
+import { notifications, desktopUtils } from "../utils/notifications";
 import { PlayIcon, StopIcon } from "@heroicons/react/24/outline";
 import {
 	Area,
@@ -241,7 +240,7 @@ export const Scraper: React.FC = () => {
 				// toast.success("Settings saved");
 			} catch (e: any) {
 				console.error("Failed to save settings", e);
-				toast.error("Failed to save settings to server");
+				notifications.error("Unable to save settings. Please check your connection and try again.");
 			}
 		}, 1000);
 
@@ -276,7 +275,7 @@ export const Scraper: React.FC = () => {
 		(async () => {
 			try {
 				await deleteScraperSettings();
-				toast.success("Server settings cleared");
+				notifications.success("Server settings cleared");
 			} catch (e) {
 				// non-fatal
 			}
@@ -317,7 +316,7 @@ export const Scraper: React.FC = () => {
 			.catch((e) => {
 				const msg = e.message || "Failed to load active games";
 				setError(msg);
-				toast.error(msg);
+				notifications.error(msg);
 			});
 	}, [selectedExportGame]);
 
@@ -389,7 +388,7 @@ export const Scraper: React.FC = () => {
 			} catch (e: any) {
 				const msg = e.message || "Status error";
 				setError(msg);
-				toast.error(msg, { id: "status-error" });
+				notifications.error(msg);
 			} finally {
 				setIsLoadingStatus(false);
 			}
@@ -419,22 +418,22 @@ export const Scraper: React.FC = () => {
 			};
 			await startScraper(payload);
 			setRunning(true);
-			toast.success("Scraper started");
+			notifications.success("Scraper started");
 		} catch (e: any) {
 			const msg = e.message || "Failed to start scraper";
 			setError(msg);
-			toast.error(msg);
+			notifications.error(msg);
 		}
 	}, [globalSettings, perGameOverrides]);
 
 	const handleStop = useCallback(async () => {
 		try {
 			await stopScraper();
-			toast.success("Scraper stopping...");
+			notifications.success("Scraper stopping...");
 		} catch (e: any) {
 			const msg = e.message || "Failed to stop scraper";
 			setError(msg);
-			toast.error(msg);
+			notifications.error(msg);
 		}
 	}, []);
 
@@ -471,7 +470,7 @@ export const Scraper: React.FC = () => {
 
 	const handleExport = useCallback(async (format: "csv" | "xlsx") => {
 		if (!selectedExportGame) {
-			toast.error("Please select a game to export reviews for.");
+			notifications.error("Please select a game to export reviews for.");
 			return;
 		}
 
@@ -487,7 +486,7 @@ export const Scraper: React.FC = () => {
 			if (!response.ok) {
 				const text = await response.text();
 				if (response.status === 404) {
-					toast.error("No reviews found for the selected game.");
+					notifications.error("No reviews found for the selected game. Try running the scraper first.");
 					return;
 				}
 				throw new Error(text || `HTTP ${response.status}`);
@@ -509,10 +508,10 @@ export const Scraper: React.FC = () => {
 			a.remove();
 			URL.revokeObjectURL(blobUrl);
 			
-			toast.success(`Download started for ${gameName}`);
+			notifications.success(`Download started for ${gameName}`);
 		} catch (error: any) {
 			console.error("Export failed:", error);
-			toast.error(error.message || "Download failed");
+			notifications.error(error.message || "Unable to download file. Please try again.");
 		}
 	}, [selectedExportGame, activeGames]);
 
@@ -591,10 +590,10 @@ export const Scraper: React.FC = () => {
 						const parts: string[] = [];
 						if (steamCount !== null) parts.push(`${steamCount} on Steam`);
 						if (dbCount !== null) parts.push(`${dbCount} in DB`);
-						if (parts.length > 0) toast.success(`Review counts updated: ${parts.join(", ")}`);
+						if (parts.length > 0) notifications.success(`Review counts updated: ${parts.join(", ")}`);
 					}
 				} catch (e) {
-					if (!cancelled) toast.error("Failed to refresh review counts");
+					if (!cancelled) notifications.error("Unable to refresh review counts. Please check your connection.");
 				}
 			})();
 			return () => {
